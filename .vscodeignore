@@ -13,3 +13,5 @@ eslint.config.mjs
 **/*.map
 **/*.ts
 assets/*.gif
+assets/logo.png
+CLAUDE.md
