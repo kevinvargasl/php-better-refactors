@@ -7,6 +7,7 @@ import {
     pathToNamespaceSegment,
     namespaceToRelativePath,
 } from '../utils/pathUtils';
+import { getNamespacePart } from '../utils/phpStringUtils';
 
 export class Psr4Resolver {
     private mappings: Psr4Mapping[] = [];
@@ -106,12 +107,6 @@ export class Psr4Resolver {
             return null;
         }
 
-        const lastSep = resolution.fqcn.lastIndexOf('\\');
-        if (lastSep === -1) {
-            // The FQCN has no namespace separator; it's a root-level class
-            return '';
-        }
-
-        return resolution.fqcn.substring(0, lastSep);
+        return getNamespacePart(resolution.fqcn);
     }
 }

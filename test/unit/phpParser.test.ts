@@ -153,6 +153,20 @@ class Foo {
             assert.strictEqual(returnRef.resolvedFqcn, 'App\\Models\\User');
         });
 
+        it('should not emit duplicate param_type references', () => {
+            const result = parsePhpFile(`<?php
+namespace App;
+
+use App\\Models\\User;
+
+class Foo {
+    public function bar(User $user): void {}
+}
+`);
+            const paramRefs = result.references.filter(r => r.type === 'param_type');
+            assert.strictEqual(paramRefs.length, 1, `Expected 1 param_type reference but got ${paramRefs.length}`);
+        });
+
         it('should detect static call references', () => {
             const result = parsePhpFile(`<?php
 namespace App;

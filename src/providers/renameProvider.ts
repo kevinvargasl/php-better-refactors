@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { parsePhpFile } from '../parsers/phpParser';
+import { getCachedParse } from '../utils/parseCache';
 import { ReferenceIndex } from '../services/referenceIndex';
 import { ReferenceUpdater } from '../services/referenceUpdater';
-import { ClassRenameDetector } from '../services/classRenameDetector';
 import { isPhpFile } from '../utils/pathUtils';
 import { buildFqcn, isValidClassName } from '../utils/phpStringUtils';
 import { findMemberReferences } from '../utils/memberSearch';
-import { MemberDeclaration } from '../types';
+import { locToRange, mergeWorkspaceEdit } from '../utils/workspaceEditUtils';
+import { MemberDeclaration, PhpFileInfo } from '../types';
 
 /**
  * Provides "Rename Symbol" (F2 / right-click → Rename) for PHP class names,
@@ -17,7 +17,6 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
     constructor(
         private index: ReferenceIndex,
         private updater: ReferenceUpdater,
-        private detector: ClassRenameDetector | null
     ) {}
 
     prepareRename(
@@ -28,14 +27,11 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
             return undefined;
         }
 
-        const info = parsePhpFile(document.getText());
+        const info = getCachedParse(document);
 
         // Check class name
         if (info.className && info.classLoc) {
-            const classRange = new vscode.Range(
-                info.classLoc.startLine - 1, info.classLoc.startColumn,
-                info.classLoc.endLine - 1, info.classLoc.endColumn
-            );
+            const classRange = locToRange(info.classLoc);
             if (classRange.contains(position)) {
                 return { range: classRange, placeholder: info.className };
             }
@@ -44,21 +40,9 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         // Check members (methods and properties)
         const member = this.findMemberAtPosition(info.members, position);
         if (member) {
-            const memberRange = new vscode.Range(
-                member.loc.startLine - 1, member.loc.startColumn,
-                member.loc.endLine - 1, member.loc.endColumn
-            );
-            // For properties, the loc includes the $. Adjust to just the name.
-            if (member.kind === 'property') {
-                const adjustedRange = new vscode.Range(
-                    member.loc.startLine - 1, member.loc.startColumn + 1,
-                    member.loc.endLine - 1, member.loc.endColumn
-                );
-                if (adjustedRange.contains(position)) {
-                    return { range: adjustedRange, placeholder: member.name };
-                }
-            } else if (memberRange.contains(position)) {
-                return { range: memberRange, placeholder: member.name };
+            const nameRange = this.memberNameRange(member);
+            if (nameRange.contains(position)) {
+                return { range: nameRange, placeholder: member.name };
             }
         }
 
@@ -74,14 +58,11 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
             return undefined;
         }
 
-        const info = parsePhpFile(document.getText());
+        const info = getCachedParse(document);
 
         // Check class name first
         if (info.className && info.classLoc) {
-            const classRange = new vscode.Range(
-                info.classLoc.startLine - 1, info.classLoc.startColumn,
-                info.classLoc.endLine - 1, info.classLoc.endColumn
-            );
+            const classRange = locToRange(info.classLoc);
             if (classRange.contains(position)) {
                 return this.renameClass(document, info, newName);
             }
@@ -90,26 +71,24 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         // Check members
         const member = this.findMemberAtPosition(info.members, position);
         if (member) {
-            if (member.kind === 'property') {
-                const adjustedRange = new vscode.Range(
-                    member.loc.startLine - 1, member.loc.startColumn + 1,
-                    member.loc.endLine - 1, member.loc.endColumn
-                );
-                if (adjustedRange.contains(position)) {
-                    return this.renameMember(document, info, member, newName);
-                }
-            } else {
-                const memberRange = new vscode.Range(
-                    member.loc.startLine - 1, member.loc.startColumn,
-                    member.loc.endLine - 1, member.loc.endColumn
-                );
-                if (memberRange.contains(position)) {
-                    return this.renameMember(document, info, member, newName);
-                }
+            const nameRange = this.memberNameRange(member);
+            if (nameRange.contains(position)) {
+                return this.renameMember(document, info, member, newName);
             }
         }
 
         return undefined;
+    }
+
+    /** Get the range covering just the member name (skipping $ for properties). */
+    private memberNameRange(member: MemberDeclaration): vscode.Range {
+        if (member.kind === 'property') {
+            return new vscode.Range(
+                member.loc.startLine - 1, member.loc.startColumn + 1,
+                member.loc.endLine - 1, member.loc.endColumn
+            );
+        }
+        return locToRange(member.loc);
     }
 
     private findMemberAtPosition(
@@ -136,7 +115,7 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
 
     private async renameClass(
         document: vscode.TextDocument,
-        info: ReturnType<typeof parsePhpFile>,
+        info: PhpFileInfo,
         newName: string,
     ): Promise<vscode.WorkspaceEdit | undefined> {
         if (!isValidClassName(newName)) {
@@ -157,27 +136,14 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         const edit = new vscode.WorkspaceEdit();
         const uri = document.uri;
 
-        const classRange = new vscode.Range(
-            info.classLoc.startLine - 1, info.classLoc.startColumn,
-            info.classLoc.endLine - 1, info.classLoc.endColumn
-        );
-        edit.replace(uri, classRange, newName);
+        edit.replace(uri, locToRange(info.classLoc), newName);
 
-        const refEdit = await this.updater.buildEditsForRename(oldFqcn, newFqcn);
-        for (const [entryUri, textEdits] of refEdit.entries()) {
-            for (const textEdit of textEdits) {
-                edit.replace(entryUri, textEdit.range, textEdit.newText);
-            }
-        }
+        mergeWorkspaceEdit(edit, await this.updater.buildEditsForRename(oldFqcn, newFqcn));
 
         const dir = path.dirname(document.fileName);
         const newFilePath = path.join(dir, newName + '.php');
         const newUri = vscode.Uri.file(newFilePath);
         edit.renameFile(uri, newUri);
-
-        if (this.detector) {
-            this.detector.updateTracking(document.fileName, newFilePath, newName);
-        }
 
         return edit;
     }
@@ -186,7 +152,7 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
 
     private async renameMember(
         document: vscode.TextDocument,
-        info: ReturnType<typeof parsePhpFile>,
+        info: PhpFileInfo,
         member: MemberDeclaration,
         newName: string,
     ): Promise<vscode.WorkspaceEdit | undefined> {
@@ -199,20 +165,7 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         const isProperty = member.kind === 'property';
 
         // 1. Rename the declaration
-        if (isProperty) {
-            // Property loc includes $, replace just the name part (after $)
-            const declRange = new vscode.Range(
-                member.loc.startLine - 1, member.loc.startColumn + 1,
-                member.loc.endLine - 1, member.loc.endColumn
-            );
-            edit.replace(document.uri, declRange, newName);
-        } else {
-            const declRange = new vscode.Range(
-                member.loc.startLine - 1, member.loc.startColumn,
-                member.loc.endLine - 1, member.loc.endColumn
-            );
-            edit.replace(document.uri, declRange, newName);
-        }
+        edit.replace(document.uri, this.memberNameRange(member), newName);
 
         // 2. Update references in the declaring file
         const localRefs = findMemberReferences(document, oldName, isProperty);
@@ -220,22 +173,26 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
             edit.replace(document.uri, range, newName);
         }
 
-        // 3. Update references in other files that import this class
+        // 3. Update references in other files that import this class (parallel)
         if (info.className) {
             const fqcn = buildFqcn(info.namespace, info.className);
             const referencingFiles = this.index.findReferencingFiles(fqcn);
 
-            for (const entry of referencingFiles) {
-                try {
-                    const uri = vscode.Uri.file(entry.filePath);
-                    const doc = await vscode.workspace.openTextDocument(uri);
-                    const refs = findMemberReferences(doc, oldName, isProperty);
-                    for (const range of refs) {
-                        edit.replace(uri, range, newName);
+            const batchSize = 50;
+            for (let i = 0; i < referencingFiles.length; i += batchSize) {
+                const batch = referencingFiles.slice(i, i + batchSize);
+                await Promise.all(batch.map(async (entry) => {
+                    try {
+                        const uri = vscode.Uri.file(entry.filePath);
+                        const doc = await vscode.workspace.openTextDocument(uri);
+                        const refs = findMemberReferences(doc, oldName, isProperty);
+                        for (const range of refs) {
+                            edit.replace(uri, range, newName);
+                        }
+                    } catch {
+                        // File may not be accessible
                     }
-                } catch {
-                    // File may not be accessible
-                }
+                }));
             }
         }
 

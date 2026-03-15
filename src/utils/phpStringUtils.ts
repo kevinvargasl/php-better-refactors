@@ -1,11 +1,4 @@
 /**
- * Check if a string is a valid PascalCase identifier (for PHP class names).
- */
-export function isPascalCase(name: string): boolean {
-    return /^[A-Z][a-zA-Z0-9]*$/.test(name);
-}
-
-/**
  * Check if a string is a valid PHP class name.
  */
 export function isValidClassName(name: string): boolean {
@@ -17,8 +10,8 @@ export function isValidClassName(name: string): boolean {
  * e.g. "App\\Models\\User" → "User"
  */
 export function getShortName(fqcn: string): string {
-    const parts = fqcn.split('\\');
-    return parts[parts.length - 1];
+    const last = fqcn.lastIndexOf('\\');
+    return last === -1 ? fqcn : fqcn.substring(last + 1);
 }
 
 /**

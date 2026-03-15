@@ -1,4 +1,15 @@
 import * as vscode from 'vscode';
+import type { PhpLocation } from '../types';
+
+/**
+ * Convert a 1-based PhpLocation to a 0-based vscode.Range.
+ */
+export function locToRange(loc: PhpLocation): vscode.Range {
+    return new vscode.Range(
+        loc.startLine - 1, loc.startColumn,
+        loc.endLine - 1, loc.endColumn
+    );
+}
 
 /**
  * Merge all edits from source into target WorkspaceEdit.

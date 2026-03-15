@@ -32,7 +32,7 @@ export function isWithinDirectory(filePath: string, directory: string): boolean 
 /**
  * Strip .php extension from a filename.
  */
-export function stripPhpExtension(filename: string): string {
+function stripPhpExtension(filename: string): string {
     if (filename.endsWith('.php')) {
         return filename.slice(0, -4);
     }

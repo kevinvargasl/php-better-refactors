@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import {
-    isPascalCase,
     isValidClassName,
     getShortName,
     getNamespacePart,
@@ -9,19 +8,6 @@ import {
 } from '../../src/utils/phpStringUtils';
 
 describe('phpStringUtils', () => {
-    describe('isPascalCase', () => {
-        it('should accept PascalCase', () => {
-            assert.strictEqual(isPascalCase('User'), true);
-            assert.strictEqual(isPascalCase('UserController'), true);
-        });
-
-        it('should reject non-PascalCase', () => {
-            assert.strictEqual(isPascalCase('user'), false);
-            assert.strictEqual(isPascalCase('user_controller'), false);
-            assert.strictEqual(isPascalCase(''), false);
-        });
-    });
-
     describe('isValidClassName', () => {
         it('should accept valid PHP class names', () => {
             assert.strictEqual(isValidClassName('User'), true);

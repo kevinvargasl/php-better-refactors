@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { parsePhpFile } from '../parsers/phpParser';
+import { getCachedParse } from '../utils/parseCache';
 import { ReferenceIndex } from '../services/referenceIndex';
 import { isPhpFile } from '../utils/pathUtils';
-import { getShortName } from '../utils/phpStringUtils';
+import { PhpFileInfo } from '../types';
 
 /**
  * Offers "Import class" quick fixes for unresolved class references.
@@ -22,16 +22,15 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
             return;
         }
 
-        const info = parsePhpFile(document.getText());
+        const info = getCachedParse(document);
         const actions: vscode.CodeAction[] = [];
+        let insertPosition: vscode.Position | undefined;
 
         for (const ref of info.references) {
-            // Only consider short names (no backslash = not fully qualified)
             if (ref.name.includes('\\')) {
                 continue;
             }
 
-            // Skip if cursor isn't on this reference
             const refLine = ref.loc.startLine - 1;
             if (range.start.line !== refLine) {
                 continue;
@@ -40,25 +39,23 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
                 continue;
             }
 
-            // Skip if already imported via use statement
             const alreadyImported = info.useStatements.some(u => u.shortName === ref.name);
             if (alreadyImported) {
                 continue;
             }
 
-            // Skip if the resolved FQCN exists in the index (same-namespace class)
             if (this.index.getFileForFqcn(ref.resolvedFqcn)) {
                 continue;
             }
 
-            // Search the index for classes matching this short name
             const candidates = this.index.findFqcnsByShortName(ref.name);
             if (candidates.length === 0) {
                 continue;
             }
 
-            // Find where to insert the use statement
-            const insertPosition = this.findUseInsertPosition(info, document);
+            if (!insertPosition) {
+                insertPosition = this.findUseInsertPosition(info, document);
+            }
 
             for (const fqcn of candidates) {
                 const action = new vscode.CodeAction(
@@ -70,7 +67,6 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
                 edit.insert(document.uri, insertPosition, `use ${fqcn};\n`);
                 action.edit = edit;
 
-                // If only one candidate, mark as preferred
                 if (candidates.length === 1) {
                     action.isPreferred = true;
                 }
@@ -82,16 +78,10 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
         return actions.length > 0 ? actions : undefined;
     }
 
-    /**
-     * Find the position to insert a new use statement.
-     * After the last existing use statement, or after the namespace declaration,
-     * or after <?php.
-     */
     private findUseInsertPosition(
-        info: ReturnType<typeof parsePhpFile>,
+        info: PhpFileInfo,
         document: vscode.TextDocument,
     ): vscode.Position {
-        // After the last use statement
         if (info.useStatements.length > 0) {
             let lastLine = 0;
             for (const use of info.useStatements) {
@@ -99,8 +89,6 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
                     lastLine = use.loc.endLine;
                 }
             }
-            // The use statement loc endLine might not include the full "use ...;" line
-            // for group items. Scan forward to find the actual semicolon line.
             for (let i = lastLine - 1; i < document.lineCount; i++) {
                 const lineText = document.lineAt(i).text;
                 if (lineText.includes(';')) {
@@ -110,12 +98,10 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
             return new vscode.Position(lastLine, 0);
         }
 
-        // After the namespace declaration
         if (info.namespaceLoc) {
             return new vscode.Position(info.namespaceLoc.endLine, 0);
         }
 
-        // After <?php
         return new vscode.Position(1, 0);
     }
 }

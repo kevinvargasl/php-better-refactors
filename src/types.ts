@@ -80,7 +80,6 @@ export interface IndexEntry {
 export interface ExtensionConfig {
     enableAutoRename: boolean;
     enableAutoNamespace: boolean;
-    enableClassRenameDetection: boolean;
     excludePatterns: string[];
 }
 

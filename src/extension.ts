@@ -4,9 +4,7 @@ import { parseComposerJson } from './parsers/composerParser';
 import { Psr4Resolver } from './services/psr4Resolver';
 import { ReferenceIndex } from './services/referenceIndex';
 import { ReferenceUpdater } from './services/referenceUpdater';
-import { ClassRenameDetector } from './services/classRenameDetector';
 import { FileRenameHandler } from './handlers/fileRenameHandler';
-import { ClassRenameHandler } from './handlers/classRenameHandler';
 import { PhpClassRenameProvider } from './providers/renameProvider';
 import { ImportClassProvider } from './providers/importClassProvider';
 import { Psr4Mapping, ExtensionConfig } from './types';
@@ -44,22 +42,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         context.subscriptions.push(handler.register());
     }
 
-    // Class rename detection
-    let detector: ClassRenameDetector | null = null;
-    if (config.enableClassRenameDetection) {
-        detector = new ClassRenameDetector();
-        detector.startWatching();
-        context.subscriptions.push(detector);
-
-        const classRenameHandler = new ClassRenameHandler(referenceIndex, updater, detector);
-        context.subscriptions.push(...classRenameHandler.register());
-    }
-
     // Rename Symbol provider (F2 / right-click → Rename Symbol)
     context.subscriptions.push(
         vscode.languages.registerRenameProvider(
             { language: 'php', scheme: 'file' },
-            new PhpClassRenameProvider(referenceIndex, updater, detector)
+            new PhpClassRenameProvider(referenceIndex, updater)
         )
     );
 
@@ -115,7 +102,6 @@ function getConfig(): ExtensionConfig {
     return {
         enableAutoRename: config.get<boolean>('enableAutoRename', true),
         enableAutoNamespace: config.get<boolean>('enableAutoNamespace', true),
-        enableClassRenameDetection: config.get<boolean>('enableClassRenameDetection', true),
         excludePatterns: config.get<string[]>('excludePatterns', ['**/vendor/**', '**/node_modules/**']),
     };
 }

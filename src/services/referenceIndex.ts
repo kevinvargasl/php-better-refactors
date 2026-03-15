@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { IndexEntry } from '../types';
 import { parsePhpFile } from '../parsers/phpParser';
 import { isPhpFile, normalizePath } from '../utils/pathUtils';
-import { buildFqcn } from '../utils/phpStringUtils';
+import { buildFqcn, getShortName } from '../utils/phpStringUtils';
 
 /**
  * Workspace-wide index of all PHP class declarations and references.
@@ -13,6 +13,8 @@ export class ReferenceIndex {
     private fqcnToFile: Map<string, string> = new Map();
     /** Reverse index: FQCN → set of file paths that reference it */
     private fqcnToReferencingFiles: Map<string, Set<string>> = new Map();
+    /** Short class name → list of FQCNs for O(1) import suggestions */
+    private shortNameToFqcns: Map<string, string[]> = new Map();
     private disposables: vscode.Disposable[] = [];
     private excludePatterns: string[];
     private onDidUpdateEmitter = new vscode.EventEmitter<void>();
@@ -82,6 +84,13 @@ export class ReferenceIndex {
         this.entries.set(filePath, entry);
         if (declaredFqcn) {
             this.fqcnToFile.set(declaredFqcn, filePath);
+            const short = getShortName(declaredFqcn);
+            let list = this.shortNameToFqcns.get(short);
+            if (!list) {
+                list = [];
+                this.shortNameToFqcns.set(short, list);
+            }
+            list.push(declaredFqcn);
         }
 
         // Build reverse index
@@ -113,6 +122,13 @@ export class ReferenceIndex {
         }
         if (existing.declaredFqcn) {
             this.fqcnToFile.delete(existing.declaredFqcn);
+            const short = getShortName(existing.declaredFqcn);
+            const list = this.shortNameToFqcns.get(short);
+            if (list) {
+                const idx = list.indexOf(existing.declaredFqcn);
+                if (idx !== -1) { list.splice(idx, 1); }
+                if (list.length === 0) { this.shortNameToFqcns.delete(short); }
+            }
         }
         // Clean reverse index
         for (const use of existing.useStatements) {
@@ -122,13 +138,6 @@ export class ReferenceIndex {
             this.fqcnToReferencingFiles.get(ref.resolvedFqcn)?.delete(normalized);
         }
         this.entries.delete(normalized);
-    }
-
-    /**
-     * Get the index entry for a file.
-     */
-    getEntry(filePath: string): IndexEntry | undefined {
-        return this.entries.get(normalizePath(filePath));
     }
 
     /**
@@ -142,14 +151,7 @@ export class ReferenceIndex {
      * Find all FQCNs in the index that end with the given short class name.
      */
     findFqcnsByShortName(shortName: string): string[] {
-        const suffix = '\\' + shortName;
-        const results: string[] = [];
-        for (const fqcn of this.fqcnToFile.keys()) {
-            if (fqcn === shortName || fqcn.endsWith(suffix)) {
-                results.push(fqcn);
-            }
-        }
-        return results;
+        return this.shortNameToFqcns.get(shortName) ?? [];
     }
 
     /**
@@ -182,7 +184,7 @@ export class ReferenceIndex {
             .filter(s => s.length > 0);
 
         const shouldExclude = (fsPath: string): boolean => {
-            const normalized = fsPath.replace(/\\/g, '/');
+            const normalized = normalizePath(fsPath);
             return excludeSegments.some(segment => normalized.includes(segment));
         };
 
@@ -204,15 +206,6 @@ export class ReferenceIndex {
         });
 
         this.disposables.push(watcher);
-    }
-
-    /**
-     * Update the FQCN mapping when a class is renamed.
-     * Call this after updating the index entry.
-     */
-    updateFqcnMapping(oldFqcn: string, newFqcn: string, filePath: string): void {
-        this.fqcnToFile.delete(oldFqcn);
-        this.fqcnToFile.set(newFqcn, normalizePath(filePath));
     }
 
     dispose(): void {

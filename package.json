@@ -1,9 +1,15 @@
 {
   "name": "php-better-refactors",
   "displayName": "PHP Better Refactors",
-  "description": "PSR-4-aware PHP refactoring: automatic class/file/namespace renaming and cross-project reference updates",
+  "description": "PSR-4-aware PHP refactoring: automatic class/file/namespace, properties and methods renaming and cross-project reference updates",
   "version": "0.1.0",
   "publisher": "kevinvargasl",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kevinvargasl/php-better-refactors"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -35,11 +41,6 @@
           "default": true,
           "description": "Automatically update namespace when file is moved"
         },
-        "phpBetterRefactors.enableClassRenameDetection": {
-          "type": "boolean",
-          "default": true,
-          "description": "Detect class name changes in editor and offer to rename file"
-        },
         "phpBetterRefactors.excludePatterns": {
           "type": "array",
           "default": [
@@ -66,8 +67,11 @@
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.0",
+    "@typescript-eslint/parser": "^8.57.0",
     "@vscode/test-electron": "^2.3.8",
     "esbuild": "^0.19.11",
+    "eslint": "^10.0.3",
     "mocha": "^10.2.0",
     "typescript": "^5.3.3"
   },

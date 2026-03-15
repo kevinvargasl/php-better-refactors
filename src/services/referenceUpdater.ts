@@ -2,7 +2,16 @@ import * as vscode from 'vscode';
 import { ReferenceIndex } from './referenceIndex';
 import { parsePhpFile } from '../parsers/phpParser';
 import { getShortName } from '../utils/phpStringUtils';
-import { UseStatement, ClassReference } from '../types';
+import { UseStatement, ClassReference, IndexEntry, PhpLocation } from '../types';
+import { locToRange } from '../utils/workspaceEditUtils';
+
+interface ParsedEntry {
+    entry: IndexEntry;
+    uri: vscode.Uri;
+    doc: vscode.TextDocument | null;
+    useStatements: UseStatement[];
+    references: ClassReference[];
+}
 
 /**
  * Builds WorkspaceEdits for bulk reference updates when a class is renamed or moved.
@@ -21,42 +30,25 @@ export class ReferenceUpdater {
         const shortNameChanged = oldShort !== newShort;
 
         const referencingFiles = this.index.findReferencingFiles(oldFqcn);
+        if (referencingFiles.length === 0) {
+            return edit;
+        }
 
-        for (const entry of referencingFiles) {
-            const uri = vscode.Uri.file(entry.filePath);
+        // Pre-fetch and parse all documents in parallel
+        const parsed = await this.fetchAndParseAll(referencingFiles);
 
-            // Re-parse current buffer to get fresh locations
-            let useStatements: UseStatement[];
-            let references: ClassReference[];
-            let docText = '';
-            try {
-                const doc = await vscode.workspace.openTextDocument(uri);
-                docText = doc.getText();
-                const freshInfo = parsePhpFile(docText);
-                useStatements = freshInfo.useStatements;
-                references = freshInfo.references;
-            } catch {
-                // File may have been deleted; fall back to index data
-                useStatements = entry.useStatements;
-                references = entry.references;
-            }
-
+        for (const { uri, doc, useStatements, references } of parsed) {
             // Update use statements
             for (const use of useStatements) {
                 if (use.fqcn !== oldFqcn) {
                     continue;
                 }
 
-                // Replace the FQCN in the use statement
-                const useRange = new vscode.Range(
-                    use.loc.startLine - 1, use.loc.startColumn,
-                    use.loc.endLine - 1, use.loc.endColumn
-                );
+                const useRange = locToRange(use.loc);
 
                 if (use.alias) {
                     edit.replace(uri, useRange, this.buildUseStatementText(newFqcn, use.alias, use.groupPrefix));
                 } else if (use.groupPrefix) {
-                    // Group use statement - update the item within the group
                     const groupPrefixWithSep = use.groupPrefix.endsWith('\\')
                         ? use.groupPrefix
                         : use.groupPrefix + '\\';
@@ -64,37 +56,27 @@ export class ReferenceUpdater {
                         const newItemName = newFqcn.substring(groupPrefixWithSep.length);
                         edit.replace(uri, useRange, newItemName);
                     } else {
-                        // New FQCN doesn't share the group prefix.
-                        // Remove item from group and add a standalone use statement.
-                        this.removeGroupItemAndAddUse(edit, uri, use, useStatements, newFqcn, docText);
+                        this.removeGroupItemAndAddUse(edit, uri, use, useStatements, newFqcn, doc);
                     }
                 } else {
-                    // Simple use statement - replace FQCN
                     edit.replace(uri, useRange, newFqcn);
                 }
 
-                // If short name changed and no alias, update all usages of the short name
                 if (shortNameChanged && !use.alias) {
                     this.updateShortNameUsages(edit, references, oldFqcn, oldShort, newShort, uri);
                 }
             }
 
-            // Update inline fully-qualified references (\App\Models\User)
+            // Update inline fully-qualified references
             for (const ref of references) {
                 if (ref.resolvedFqcn !== oldFqcn) {
                     continue;
                 }
-
                 const refName = ref.name;
                 const strippedRef = refName.startsWith('\\') ? refName.substring(1) : refName;
-
                 if (strippedRef === oldFqcn) {
-                    const range = new vscode.Range(
-                        ref.loc.startLine - 1, ref.loc.startColumn,
-                        ref.loc.endLine - 1, ref.loc.endColumn
-                    );
                     const prefix = refName.startsWith('\\') ? '\\' : '';
-                    edit.replace(uri, range, prefix + newFqcn);
+                    edit.replace(uri, locToRange(ref.loc), prefix + newFqcn);
                 }
             }
         }
@@ -103,8 +85,38 @@ export class ReferenceUpdater {
     }
 
     /**
-     * Update all usages of a short class name within a file.
+     * Fetch and parse all referencing files in parallel batches.
      */
+    private async fetchAndParseAll(entries: IndexEntry[]): Promise<ParsedEntry[]> {
+        const batchSize = 50;
+        const results: ParsedEntry[] = [];
+
+        for (let i = 0; i < entries.length; i += batchSize) {
+            const batch = entries.slice(i, i + batchSize);
+            const batchResults = await Promise.all(batch.map(async (entry) => {
+                const uri = vscode.Uri.file(entry.filePath);
+                try {
+                    const doc = await vscode.workspace.openTextDocument(uri);
+                    const freshInfo = parsePhpFile(doc.getText());
+                    return {
+                        entry, uri, doc,
+                        useStatements: freshInfo.useStatements,
+                        references: freshInfo.references,
+                    };
+                } catch {
+                    return {
+                        entry, uri, doc: null,
+                        useStatements: entry.useStatements,
+                        references: entry.references,
+                    };
+                }
+            }));
+            results.push(...batchResults);
+        }
+
+        return results;
+    }
+
     private updateShortNameUsages(
         edit: vscode.WorkspaceEdit,
         references: ClassReference[],
@@ -115,11 +127,7 @@ export class ReferenceUpdater {
     ): void {
         for (const ref of references) {
             if (ref.name === oldShort && ref.resolvedFqcn === oldFqcn) {
-                const range = new vscode.Range(
-                    ref.loc.startLine - 1, ref.loc.startColumn,
-                    ref.loc.endLine - 1, ref.loc.endColumn
-                );
-                edit.replace(uri, range, newShort);
+                edit.replace(uri, locToRange(ref.loc), newShort);
             }
         }
     }
@@ -133,22 +141,23 @@ export class ReferenceUpdater {
         use: UseStatement,
         allUseStatements: UseStatement[],
         newFqcn: string,
-        docText: string,
+        doc: vscode.TextDocument | null,
     ): void {
         const line = use.loc.startLine - 1;
-        const lineText = docText.split('\n')[line] || '';
+        const lineText = doc ? doc.lineAt(line).text : '';
 
-        // Count how many items share this group prefix
-        const sameGroupItems = allUseStatements.filter(u => u.groupPrefix === use.groupPrefix);
+        // Count how many items share this group prefix (early exit)
+        let groupCount = 0;
+        for (const u of allUseStatements) {
+            if (u.groupPrefix === use.groupPrefix && ++groupCount > 1) { break; }
+        }
 
-        if (sameGroupItems.length <= 1) {
-            // Only item in the group — replace the entire use statement line
+        if (groupCount <= 1) {
             const lineRange = new vscode.Range(line, 0, line + 1, 0);
             edit.replace(uri, lineRange, `use ${newFqcn};\n`);
             return;
         }
 
-        // Multiple items: remove this item (with its comma) from the group
         const startCol = use.loc.startColumn;
         const endCol = use.loc.endColumn;
         const charBefore2 = lineText[startCol - 2] || '';
@@ -159,10 +168,8 @@ export class ReferenceUpdater {
         let removeEnd = endCol;
 
         if (charBefore1 === ' ' && charBefore2 === ',') {
-            // Middle or last item: remove preceding ", "
             removeStart = startCol - 2;
         } else if (charAfter === ',') {
-            // First item: remove trailing ","  and optional space
             removeEnd = endCol + 1;
             if (lineText[removeEnd] === ' ') {
                 removeEnd++;
@@ -171,14 +178,9 @@ export class ReferenceUpdater {
 
         const removeRange = new vscode.Range(line, removeStart, line, removeEnd);
         edit.replace(uri, removeRange, '');
-
-        // Add a new standalone use statement after this line
         edit.insert(uri, new vscode.Position(line + 1, 0), `use ${newFqcn};\n`);
     }
 
-    /**
-     * Build the text for a use statement replacement.
-     */
     private buildUseStatementText(fqcn: string, alias: string | null, groupPrefix?: string): string {
         if (groupPrefix) {
             const prefixWithSep = groupPrefix.endsWith('\\') ? groupPrefix : groupPrefix + '\\';
@@ -190,12 +192,9 @@ export class ReferenceUpdater {
         return alias ? `${fqcn} as ${alias}` : fqcn;
     }
 
-    /**
-     * Build edits to update namespace declaration using file info.
-     */
     buildNamespaceEditFromInfo(
         filePath: string,
-        currentNamespaceLoc: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null,
+        currentNamespaceLoc: PhpLocation | null,
         currentNamespace: string | null,
         newNamespace: string
     ): vscode.WorkspaceEdit {
@@ -203,38 +202,23 @@ export class ReferenceUpdater {
         const uri = vscode.Uri.file(filePath);
 
         if (currentNamespaceLoc && currentNamespace) {
-            // Replace existing namespace
-            const range = new vscode.Range(
-                currentNamespaceLoc.startLine - 1, currentNamespaceLoc.startColumn,
-                currentNamespaceLoc.endLine - 1, currentNamespaceLoc.endColumn
-            );
-            edit.replace(uri, range, `namespace ${newNamespace};`);
+            edit.replace(uri, locToRange(currentNamespaceLoc), `namespace ${newNamespace};`);
         } else if (!currentNamespace && newNamespace) {
-            // Insert namespace after <?php
             edit.insert(uri, new vscode.Position(1, 0), `\nnamespace ${newNamespace};\n`);
         }
 
         return edit;
     }
 
-    /**
-     * Build edits to rename the class declaration in a file.
-     */
     buildClassRenameEdit(
         filePath: string,
-        classLoc: { startLine: number; startColumn: number; endLine: number; endColumn: number },
+        classLoc: PhpLocation,
         oldClassName: string,
         newClassName: string
     ): vscode.WorkspaceEdit {
         const edit = new vscode.WorkspaceEdit();
         const uri = vscode.Uri.file(filePath);
-
-        const range = new vscode.Range(
-            classLoc.startLine - 1, classLoc.startColumn,
-            classLoc.endLine - 1, classLoc.endColumn
-        );
-        edit.replace(uri, range, newClassName);
-
+        edit.replace(uri, locToRange(classLoc), newClassName);
         return edit;
     }
 }

@@ -128,13 +128,7 @@ function collectFunctionLike(ctx: CollectorContext): boolean {
     if (ctx.node.type) {
         extractTypeReferences(ctx.node.type, 'return_type', ctx.useStatements, ctx.currentNamespace, ctx.references);
     }
-    if (ctx.node.arguments) {
-        for (const param of ctx.node.arguments) {
-            if (param.type) {
-                extractTypeReferences(param.type, 'param_type', ctx.useStatements, ctx.currentNamespace, ctx.references);
-            }
-        }
-    }
+    // Parameter types are handled by collectParameter via child recursion — don't extract here
     return false;
 }
 

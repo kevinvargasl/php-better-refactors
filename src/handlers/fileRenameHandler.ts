@@ -4,7 +4,7 @@ import { parsePhpFile } from '../parsers/phpParser';
 import { ReferenceUpdater } from '../services/referenceUpdater';
 import { Psr4Resolver } from '../services/psr4Resolver';
 import { isPhpFile, getBaseName } from '../utils/pathUtils';
-import { buildFqcn } from '../utils/phpStringUtils';
+import { buildFqcn, getNamespacePart } from '../utils/phpStringUtils';
 import { mergeWorkspaceEdit, mergeEdits } from '../utils/workspaceEditUtils';
 
 /**
@@ -27,14 +27,6 @@ export class FileRenameHandler {
                 event.waitUntil(edit);
             }
         });
-    }
-
-    markInProgress(filePath: string): void {
-        this.inProgress.add(filePath);
-    }
-
-    clearInProgress(filePath: string): void {
-        this.inProgress.delete(filePath);
     }
 
     private handle(event: vscode.FileRenameEvent): Promise<vscode.WorkspaceEdit> | undefined {
@@ -127,7 +119,7 @@ export class FileRenameHandler {
             // Resolve new namespace from PSR-4
             const newResolution = this.resolver.resolveNamespace(newUri.fsPath);
             const newNamespace = newResolution
-                ? this.resolver.resolveNamespaceForFile(newUri.fsPath)
+                ? getNamespacePart(newResolution.fqcn)
                 : info.namespace;
             const newFqcn = buildFqcn(newNamespace, newClassName);
 

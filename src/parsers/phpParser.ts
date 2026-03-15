@@ -210,12 +210,13 @@ function extractUseStatements(node: any): UseStatement[] {
         fullName = stripLeadingBackslash(fullName);
 
         const alias: string | null = item.alias?.name || item.alias || null;
-        const shortName = alias || getShortName(fullName);
+        const computedShortName = getShortName(fullName);
+        const shortName = alias || computedShortName;
         const loc = item.loc ? nodeToLocation(item) : nodeToLocation(node);
 
         const useStmt: UseStatement = {
             fqcn: fullName,
-            alias: alias && alias !== getShortName(fullName) ? alias : null,
+            alias: alias && alias !== computedShortName ? alias : null,
             shortName,
             loc,
         };
