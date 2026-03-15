@@ -2,7 +2,7 @@
   "name": "php-better-refactors",
   "displayName": "PHP Better Refactors",
   "description": "PSR-4-aware PHP refactoring: automatic class/file/namespace, properties and methods renaming and cross-project reference updates",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "kevinvargasl",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -20,7 +20,7 @@
   "activationEvents": [
     "workspaceContains:**/composer.json"
   ],
-  "main": "./out/src/extension.js",
+  "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
@@ -56,9 +56,10 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run package",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "watch": "node esbuild.mjs --watch",
+    "package": "node esbuild.mjs --production",
     "lint": "eslint src",
     "test": "node ./out/test/runTests.js",
     "test:unit": "mocha ./out/test/unit/**/*.test.js"

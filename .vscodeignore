@@ -5,11 +5,13 @@
 src/**
 test/**
 out/test/**
+out/src/**
 node_modules/**
 .gitignore
 .mocharc.yml
 tsconfig.json
 eslint.config.mjs
+esbuild.mjs
 **/*.map
 **/*.ts
 assets/*.gif
