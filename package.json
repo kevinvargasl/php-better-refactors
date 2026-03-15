@@ -1,0 +1,77 @@
+{
+  "name": "php-better-refactors",
+  "displayName": "PHP Better Refactors",
+  "description": "PSR-4-aware PHP refactoring: automatic class/file/namespace renaming and cross-project reference updates",
+  "version": "0.1.0",
+  "publisher": "kevinvargasl",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/composer.json"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "phpBetterRefactors.reindex",
+        "title": "PHP Better Refactors: Rebuild Index"
+      }
+    ],
+    "configuration": {
+      "title": "PHP Better Refactors",
+      "properties": {
+        "phpBetterRefactors.enableAutoRename": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically rename class when file is renamed"
+        },
+        "phpBetterRefactors.enableAutoNamespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically update namespace when file is moved"
+        },
+        "phpBetterRefactors.enableClassRenameDetection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detect class name changes in editor and offer to rename file"
+        },
+        "phpBetterRefactors.excludePatterns": {
+          "type": "array",
+          "default": [
+            "**/vendor/**",
+            "**/node_modules/**"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Patterns for files/folders to exclude from reference scanning"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src",
+    "test": "node ./out/test/runTests.js",
+    "test:unit": "mocha ./out/test/unit/**/*.test.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.8",
+    "esbuild": "^0.19.11",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "php-parser": "^3.1.5"
+  }
+}
