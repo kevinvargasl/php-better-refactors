@@ -66,6 +66,17 @@ describe('Psr4Resolver', () => {
             assert.ok(result);
             assert.strictEqual(result.fqcn, 'App\\Http\\Controllers\\Api\\UserController');
         });
+
+        it('should reject directories that escape the composer base', () => {
+            resolver.setMappings([{
+                prefix: 'Evil\\',
+                directories: ['../../outside/'],
+                composerDir: '/project',
+            }]);
+
+            const result = resolver.resolveNamespace('/outside/Foo.php');
+            assert.strictEqual(result, null);
+        });
     });
 
     describe('resolveFilePath', () => {

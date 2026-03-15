@@ -13,25 +13,16 @@ export function normalizePath(filePath: string): string {
     return normalized;
 }
 
-/**
- * Get relative path from base to target, using forward slashes.
- */
 export function relativePath(from: string, to: string): string {
     return path.relative(from, to).replace(/\\/g, '/');
 }
 
-/**
- * Check if a path is within a directory.
- */
 export function isWithinDirectory(filePath: string, directory: string): boolean {
     const normalizedFile = normalizePath(path.resolve(filePath));
     const normalizedDir = normalizePath(path.resolve(directory));
     return normalizedFile.startsWith(normalizedDir + '/');
 }
 
-/**
- * Strip .php extension from a filename.
- */
 function stripPhpExtension(filename: string): string {
     if (filename.endsWith('.php')) {
         return filename.slice(0, -4);
@@ -39,9 +30,6 @@ function stripPhpExtension(filename: string): string {
     return filename;
 }
 
-/**
- * Get the filename without extension from a full path.
- */
 export function getBaseName(filePath: string): string {
     return stripPhpExtension(path.basename(filePath));
 }

@@ -6,6 +6,7 @@ import { Psr4Resolver } from '../services/psr4Resolver';
 import { isPhpFile, getBaseName } from '../utils/pathUtils';
 import { buildFqcn, getNamespacePart } from '../utils/phpStringUtils';
 import { mergeWorkspaceEdit, mergeEdits } from '../utils/workspaceEditUtils';
+import { formatError } from '../utils/errorUtils';
 
 /**
  * Handles both file renames (same directory) and file moves (different directory)
@@ -61,8 +62,6 @@ export class FileRenameHandler {
         return mergeEdits(edits);
     }
 
-    // --- Pure rename (same directory, different filename) ---
-
     private async processRename(
         oldUri: vscode.Uri,
         oldName: string,
@@ -86,13 +85,11 @@ export class FileRenameHandler {
             mergeWorkspaceEdit(combinedEdit,
                 await this.updater.buildEditsForRename(oldFqcn, newFqcn));
         } catch (error) {
-            console.error('PHP Better Refactors: Error processing file rename', error);
+            console.warn('PHP Better Refactors: Error processing file rename:', formatError(error));
         }
 
         return combinedEdit;
     }
-
-    // --- Move (different directory, optionally also renamed) ---
 
     private async processMove(
         oldUri: vscode.Uri,
@@ -145,7 +142,7 @@ export class FileRenameHandler {
                     await this.updater.buildEditsForRename(oldFqcn, newFqcn));
             }
         } catch (error) {
-            console.error('PHP Better Refactors: Error processing file move', error);
+            console.warn('PHP Better Refactors: Error processing file move:', formatError(error));
         }
 
         return combinedEdit;

@@ -17,8 +17,6 @@ const engine = new Engine({
     lexer: { all_tokens: false, short_tags: false },
 });
 
-// --- Pass 1: Extract declarations ---
-
 interface Declarations {
     namespace: string | null;
     namespaceLoc: PhpLocation | null;
@@ -107,8 +105,6 @@ function extractDeclarations(ast: any): Declarations {
     return result;
 }
 
-// --- Pass 2: Collect references ---
-
 function collectReferences(
     node: any,
     useStatements: UseStatement[],
@@ -141,8 +137,6 @@ function collectReferences(
 
     forEachChild(node, child => collectReferences(child, useStatements, currentNamespace, references));
 }
-
-// --- Helpers ---
 
 function extractMembers(body: any[], members: MemberDeclaration[]): void {
     if (!body) {
@@ -230,8 +224,6 @@ function extractUseStatements(node: any): UseStatement[] {
 
     return results;
 }
-
-// --- Public API ---
 
 const EMPTY_RESULT: PhpFileInfo = {
     namespace: null,

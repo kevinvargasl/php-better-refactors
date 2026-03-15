@@ -8,6 +8,7 @@ import { buildFqcn, isValidClassName } from '../utils/phpStringUtils';
 import { findMemberReferences } from '../utils/memberSearch';
 import { locToRange, mergeWorkspaceEdit } from '../utils/workspaceEditUtils';
 import { MemberDeclaration, PhpFileInfo } from '../types';
+import { formatError } from '../utils/errorUtils';
 
 /**
  * Provides "Rename Symbol" (F2 / right-click → Rename) for PHP class names,
@@ -29,7 +30,6 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
 
         const info = getCachedParse(document);
 
-        // Check class name
         if (info.className && info.classLoc) {
             const classRange = locToRange(info.classLoc);
             if (classRange.contains(position)) {
@@ -37,7 +37,6 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
             }
         }
 
-        // Check members (methods and properties)
         const member = this.findMemberAtPosition(info.members, position);
         if (member) {
             const nameRange = this.memberNameRange(member);
@@ -60,7 +59,6 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
 
         const info = getCachedParse(document);
 
-        // Check class name first
         if (info.className && info.classLoc) {
             const classRange = locToRange(info.classLoc);
             if (classRange.contains(position)) {
@@ -68,7 +66,6 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
             }
         }
 
-        // Check members
         const member = this.findMemberAtPosition(info.members, position);
         if (member) {
             const nameRange = this.memberNameRange(member);
@@ -111,8 +108,6 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         return undefined;
     }
 
-    // --- Class rename ---
-
     private async renameClass(
         document: vscode.TextDocument,
         info: PhpFileInfo,
@@ -148,14 +143,15 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         return edit;
     }
 
-    // --- Member rename ---
-
     private async renameMember(
         document: vscode.TextDocument,
         info: PhpFileInfo,
         member: MemberDeclaration,
         newName: string,
     ): Promise<vscode.WorkspaceEdit | undefined> {
+        if (!isValidClassName(newName)) {
+            throw new Error(`"${newName}" is not a valid PHP identifier.`);
+        }
         const oldName = member.name;
         if (oldName === newName) {
             return undefined;
@@ -189,8 +185,8 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
                         for (const range of refs) {
                             edit.replace(uri, range, newName);
                         }
-                    } catch {
-                        // File may not be accessible
+                    } catch (error) {
+                        console.warn('PHP Better Refactors: Failed to update references in file:', entry.filePath, formatError(error));
                     }
                 }));
             }

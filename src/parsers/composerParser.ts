@@ -1,4 +1,5 @@
 import type { Psr4Mapping } from '../types';
+import { formatError } from '../utils/errorUtils';
 
 interface ComposerAutoload {
     'psr-4'?: Record<string, string | string[]>;
@@ -9,6 +10,8 @@ interface ComposerJson {
     'autoload-dev'?: ComposerAutoload;
 }
 
+const VALID_PSR4_PREFIX = /^[A-Za-z_\\][A-Za-z0-9_\\]*\\$/;
+
 /**
  * Normalize a directory path to always end with '/'.
  */
@@ -17,6 +20,15 @@ function normalizeDir(dir: string): string {
         return '/';
     }
     return dir.endsWith('/') ? dir : dir + '/';
+}
+
+function isValidDirectory(dir: string): boolean {
+    if (typeof dir !== 'string' || dir.length === 0) {
+        return false;
+    }
+    // Reject path traversal attempts
+    const normalized = dir.replace(/\\/g, '/');
+    return !normalized.split('/').some(segment => segment === '..');
 }
 
 /**
@@ -29,10 +41,17 @@ function extractMappings(
     const mappings: Psr4Mapping[] = [];
 
     for (const [prefix, dirs] of Object.entries(psr4)) {
-        const directories = Array.isArray(dirs) ? dirs : [dirs];
+        if (!VALID_PSR4_PREFIX.test(prefix)) {
+            continue;
+        }
+        const rawDirs = Array.isArray(dirs) ? dirs : [dirs];
+        const validDirs = rawDirs.filter(isValidDirectory);
+        if (validDirs.length === 0) {
+            continue;
+        }
         mappings.push({
             prefix,
-            directories: directories.map(normalizeDir),
+            directories: validDirs.map(normalizeDir),
             composerDir,
         });
     }
@@ -47,7 +66,8 @@ export function parseComposerJson(content: string, composerDir: string): Psr4Map
     let json: ComposerJson;
     try {
         json = JSON.parse(content) as ComposerJson;
-    } catch {
+    } catch (error) {
+        console.warn('PHP Better Refactors: Failed to parse composer.json:', formatError(error));
         return [];
     }
 

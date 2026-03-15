@@ -167,6 +167,43 @@ class Foo {
             assert.strictEqual(paramRefs.length, 1, `Expected 1 param_type reference but got ${paramRefs.length}`);
         });
 
+        it('should not emit duplicate param_type references with multiple params', () => {
+            const result = parsePhpFile(`<?php
+namespace App;
+
+use App\\Models\\User;
+use App\\Models\\Post;
+
+class Foo {
+    public function bar(User $user, Post $post): void {}
+}
+`);
+            const paramRefs = result.references.filter(r => r.type === 'param_type');
+            assert.strictEqual(paramRefs.length, 2, `Expected 2 param_type references but got ${paramRefs.length}`);
+        });
+
+        it('should extract member declarations', () => {
+            const result = parsePhpFile(`<?php
+namespace App;
+
+class Foo {
+    public string $name;
+    private int $age;
+
+    public function getName(): string { return $this->name; }
+    public static function create(): self { return new self(); }
+}
+`);
+            assert.strictEqual(result.members.length, 4);
+            const props = result.members.filter(m => m.kind === 'property');
+            const methods = result.members.filter(m => m.kind === 'method');
+            assert.strictEqual(props.length, 2);
+            assert.strictEqual(methods.length, 2);
+            assert.strictEqual(props[0].name, 'name');
+            assert.strictEqual(methods[1].name, 'create');
+            assert.strictEqual(methods[1].isStatic, true);
+        });
+
         it('should detect static call references', () => {
             const result = parsePhpFile(`<?php
 namespace App;
@@ -304,5 +341,6 @@ class User extends Base {
             assert.strictEqual(result.namespace, null);
             assert.strictEqual(result.className, null);
         });
+
     });
 });

@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+const PHP_IDENTIFIER = /^[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*$/;
+
 /**
  * Find all occurrences of a member name (method or property) in a document.
  * Searches for patterns like ->name, ::name, and ::$name.
@@ -10,6 +12,11 @@ export function findMemberReferences(
     isProperty: boolean,
 ): vscode.Range[] {
     const ranges: vscode.Range[] = [];
+
+    if (!PHP_IDENTIFIER.test(memberName)) {
+        return ranges;
+    }
+
     const text = document.getText();
 
     // Build patterns to match:

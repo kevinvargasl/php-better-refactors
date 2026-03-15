@@ -3,6 +3,7 @@ import { IndexEntry } from '../types';
 import { parsePhpFile } from '../parsers/phpParser';
 import { isPhpFile, normalizePath } from '../utils/pathUtils';
 import { buildFqcn, getShortName } from '../utils/phpStringUtils';
+import { formatError } from '../utils/errorUtils';
 
 /**
  * Workspace-wide index of all PHP class declarations and references.
@@ -54,8 +55,8 @@ export class ReferenceIndex {
             const document = await vscode.workspace.openTextDocument(filePath);
             const content = document.getText();
             this.indexFileContent(normalizedPath, content);
-        } catch {
-            // File may have been deleted or be unreadable
+        } catch (error) {
+            console.warn('PHP Better Refactors: Failed to index file:', filePath, formatError(error));
             this.removeFile(normalizedPath);
         }
     }
@@ -178,28 +179,29 @@ export class ReferenceIndex {
     startWatching(): void {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*.php');
 
-        // Pre-extract path segments to match (e.g. "**/vendor/**" → "/vendor/")
-        const excludeSegments = this.excludePatterns
-            .map(p => p.replace(/\*\*/g, '').replace(/\*/g, ''))
-            .filter(s => s.length > 0);
-
-        const shouldExclude = (fsPath: string): boolean => {
-            const normalized = normalizePath(fsPath);
-            return excludeSegments.some(segment => normalized.includes(segment));
+        // Match exclude patterns using the relative path from workspace root,
+        // consistent with how findFiles handles exclude globs.
+        const shouldExclude = (uri: vscode.Uri): boolean => {
+            const rel = normalizePath(vscode.workspace.asRelativePath(uri, false));
+            return this.excludePatterns.some(p => {
+                // Convert glob to path segment: "**/vendor/**" → "/vendor/"
+                const segment = p.replace(/\*\*/g, '').replace(/\*/g, '');
+                return segment.length > 0 && rel.includes(segment.replace(/\\/g, '/'));
+            });
         };
 
         watcher.onDidCreate(uri => {
-            if (!shouldExclude(uri.fsPath)) {
+            if (!shouldExclude(uri)) {
                 this.indexFile(uri.fsPath).then(() => this.onDidUpdateEmitter.fire());
             }
         });
         watcher.onDidChange(uri => {
-            if (!shouldExclude(uri.fsPath)) {
+            if (!shouldExclude(uri)) {
                 this.indexFile(uri.fsPath).then(() => this.onDidUpdateEmitter.fire());
             }
         });
         watcher.onDidDelete(uri => {
-            if (!shouldExclude(uri.fsPath)) {
+            if (!shouldExclude(uri)) {
                 this.removeFile(uri.fsPath);
                 this.onDidUpdateEmitter.fire();
             }

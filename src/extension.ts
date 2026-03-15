@@ -8,6 +8,7 @@ import { FileRenameHandler } from './handlers/fileRenameHandler';
 import { PhpClassRenameProvider } from './providers/renameProvider';
 import { ImportClassProvider } from './providers/importClassProvider';
 import { Psr4Mapping, ExtensionConfig } from './types';
+import { formatError } from './utils/errorUtils';
 
 let referenceIndex: ReferenceIndex | undefined;
 
@@ -122,13 +123,13 @@ async function loadPsr4Mappings(resolver: Psr4Resolver): Promise<void> {
                 const content = document.getText();
                 const mappings = parseComposerJson(content, path.dirname(composerPath));
                 allMappings.push(...mappings);
-            } catch {
-                // Skip invalid composer.json files
+            } catch (error) {
+                console.warn('PHP Better Refactors: Failed to read composer.json:', composerPath, formatError(error));
             }
         }
 
         resolver.setMappings(allMappings);
-    } catch {
-        // No composer files found - PSR-4 features disabled
+    } catch (error) {
+        console.warn('PHP Better Refactors: Failed to discover composer.json files:', formatError(error));
     }
 }

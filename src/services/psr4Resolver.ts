@@ -39,10 +39,16 @@ export class Psr4Resolver {
         let bestMatch: Psr4Resolution | null = null;
 
         for (const mapping of this.mappings) {
+            const composerBase = normalizePath(path.resolve(mapping.composerDir));
             for (const dir of mapping.directories) {
                 const absoluteDir = normalizePath(
                     path.resolve(mapping.composerDir, dir)
                 );
+
+                // Reject directories that escape the composer.json base
+                if (!absoluteDir.startsWith(composerBase + '/') && absoluteDir !== composerBase) {
+                    continue;
+                }
 
                 if (!isWithinDirectory(normalizedFile, absoluteDir)) {
                     continue;

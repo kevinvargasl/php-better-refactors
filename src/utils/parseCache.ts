@@ -7,6 +7,8 @@ import { parsePhpFile } from '../parsers/phpParser';
  * Avoids re-parsing the same document content multiple times
  * (e.g., prepareRename → provideRenameEdits, or frequent code action triggers).
  */
+const MAX_CACHEABLE_ITEMS = 10_000;
+
 let cached: { uri: string; version: number; info: PhpFileInfo } | undefined;
 
 export function getCachedParse(document: vscode.TextDocument): PhpFileInfo {
@@ -16,6 +18,11 @@ export function getCachedParse(document: vscode.TextDocument): PhpFileInfo {
         return cached.info;
     }
     const info = parsePhpFile(document.getText());
-    cached = { uri, version, info };
+    const totalItems = info.references.length + info.useStatements.length + info.members.length;
+    if (totalItems <= MAX_CACHEABLE_ITEMS) {
+        cached = { uri, version, info };
+    } else {
+        cached = undefined;
+    }
     return info;
 }

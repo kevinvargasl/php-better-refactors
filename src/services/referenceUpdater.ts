@@ -4,6 +4,7 @@ import { parsePhpFile } from '../parsers/phpParser';
 import { getShortName } from '../utils/phpStringUtils';
 import { UseStatement, ClassReference, IndexEntry, PhpLocation } from '../types';
 import { locToRange } from '../utils/workspaceEditUtils';
+import { formatError } from '../utils/errorUtils';
 
 interface ParsedEntry {
     entry: IndexEntry;
@@ -103,7 +104,8 @@ export class ReferenceUpdater {
                         useStatements: freshInfo.useStatements,
                         references: freshInfo.references,
                     };
-                } catch {
+                } catch (error) {
+                    console.warn('PHP Better Refactors: Failed to read file for reference update:', entry.filePath, formatError(error));
                     return {
                         entry, uri, doc: null,
                         useStatements: entry.useStatements,

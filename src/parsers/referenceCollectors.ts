@@ -46,8 +46,6 @@ function addRefsFromArray(ctx: CollectorContext, nodes: any[], type: ReferenceTy
     }
 }
 
-// --- Individual collectors ---
-
 function collectNew(ctx: CollectorContext): boolean {
     const what = ctx.node.what;
     if (what && what.kind !== 'variable') {
@@ -161,8 +159,6 @@ function collectAttrGroup(ctx: CollectorContext): boolean {
     }
     return true; // skip default recursion
 }
-
-// --- Dispatch map ---
 
 export const collectors: Record<string, CollectorFn> = {
     'new': collectNew,
