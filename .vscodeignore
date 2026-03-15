@@ -1,9 +1,15 @@
 .vscode/**
 .vscode-test/**
+.claude/**
+.github/**
 src/**
 test/**
+out/test/**
 node_modules/**
 .gitignore
+.mocharc.yml
 tsconfig.json
+eslint.config.mjs
 **/*.map
 **/*.ts
+assets/*.gif
