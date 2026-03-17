@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { IndexEntry } from '../types';
 import { parsePhpFile } from '../parsers/phpParser';
 import { isPhpFile, normalizePath } from '../utils/pathUtils';
+import { buildExcludeSegments, matchesExcludeSegments } from '../utils/excludeUtils';
 import { buildFqcn, getShortName } from '../utils/phpStringUtils';
 import { formatError } from '../utils/errorUtils';
 
@@ -22,18 +23,14 @@ export class ReferenceIndex {
     private onDidUpdateEmitter = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this.onDidUpdateEmitter.event;
 
-    constructor(excludePatterns: string[] = ['**/vendor/**', '**/node_modules/**']) {
+    constructor(excludePatterns: string[] = ['**/vendor/**', '**/node_modules/**', '**/storage/**', '**/.phpunit.cache/**', '**/.phpstan/**', '**/.php-cs-fixer.cache/**']) {
         this.excludePatterns = excludePatterns;
     }
 
-    /**
-     * Build the full index by scanning all PHP files in the workspace.
-     */
     async buildIndex(): Promise<void> {
         const excludePattern = `{${this.excludePatterns.join(',')}}`;
         const files = await vscode.workspace.findFiles('**/*.php', excludePattern);
 
-        // Process in batches to avoid overwhelming the extension host
         const batchSize = 50;
         for (let i = 0; i < files.length; i += batchSize) {
             const batch = files.slice(i, i + batchSize);
@@ -43,10 +40,6 @@ export class ReferenceIndex {
         this.onDidUpdateEmitter.fire();
     }
 
-    /**
-     * Index a file by reading directly from disk (lighter than openTextDocument).
-     * Used for initial batch indexing where documents aren't open in the editor.
-     */
     private async indexFileDirect(uri: vscode.Uri): Promise<void> {
         if (!isPhpFile(uri.fsPath)) {
             return;
@@ -62,9 +55,6 @@ export class ReferenceIndex {
         }
     }
 
-    /**
-     * Index a single PHP file.
-     */
     async indexFile(filePath: string): Promise<void> {
         if (!isPhpFile(filePath)) {
             return;
@@ -81,11 +71,7 @@ export class ReferenceIndex {
         }
     }
 
-    /**
-     * Index a file from its content directly.
-     */
     indexFileContent(filePath: string, content: string): void {
-        // Remove old entry if re-indexing
         if (this.entries.has(filePath)) {
             this.removeFile(filePath);
         }
@@ -115,7 +101,6 @@ export class ReferenceIndex {
             list.push(declaredFqcn);
         }
 
-        // Build reverse index
         const referencedFqcns = new Set<string>();
         for (const use of entry.useStatements) {
             referencedFqcns.add(use.fqcn);
@@ -133,9 +118,6 @@ export class ReferenceIndex {
         }
     }
 
-    /**
-     * Remove a file from the index.
-     */
     removeFile(filePath: string): void {
         const normalized = normalizePath(filePath);
         const existing = this.entries.get(normalized);
@@ -152,7 +134,6 @@ export class ReferenceIndex {
                 if (list.length === 0) { this.shortNameToFqcns.delete(short); }
             }
         }
-        // Clean reverse index
         for (const use of existing.useStatements) {
             this.fqcnToReferencingFiles.get(use.fqcn)?.delete(normalized);
         }
@@ -162,23 +143,14 @@ export class ReferenceIndex {
         this.entries.delete(normalized);
     }
 
-    /**
-     * Get the file path for a FQCN.
-     */
     getFileForFqcn(fqcn: string): string | undefined {
         return this.fqcnToFile.get(fqcn);
     }
 
-    /**
-     * Find all FQCNs in the index that end with the given short class name.
-     */
     findFqcnsByShortName(shortName: string): string[] {
         return this.shortNameToFqcns.get(shortName) ?? [];
     }
 
-    /**
-     * Find all files that reference a given FQCN.
-     */
     findReferencingFiles(fqcn: string): IndexEntry[] {
         const filePaths = this.fqcnToReferencingFiles.get(fqcn);
         if (!filePaths) {
@@ -194,24 +166,13 @@ export class ReferenceIndex {
         return results;
     }
 
-    /**
-     * Start watching for file changes.
-     */
     startWatching(): void {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*.php');
 
-        // Pre-compute exclude segments once instead of per-event
-        const excludeSegments: string[] = [];
-        for (const p of this.excludePatterns) {
-            const segment = p.replace(/\*\*/g, '').replace(/\*/g, '').replace(/\\/g, '/');
-            if (segment.length > 0) {
-                excludeSegments.push(segment);
-            }
-        }
-
+        const excludeSegments = buildExcludeSegments(this.excludePatterns);
         const shouldExclude = (uri: vscode.Uri): boolean => {
             const rel = normalizePath(vscode.workspace.asRelativePath(uri, false));
-            return excludeSegments.some(seg => rel.includes(seg));
+            return matchesExcludeSegments(rel, excludeSegments);
         };
 
         watcher.onDidCreate(uri => {
@@ -252,3 +213,4 @@ export class ReferenceIndex {
         this.onDidUpdateEmitter.dispose();
     }
 }
+
