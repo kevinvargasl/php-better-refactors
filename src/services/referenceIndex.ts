@@ -18,6 +18,7 @@ export class ReferenceIndex {
     private shortNameToFqcns: Map<string, string[]> = new Map();
     private disposables: vscode.Disposable[] = [];
     private excludePatterns: string[];
+    private changeTimers: Map<string, NodeJS.Timeout> = new Map();
     private onDidUpdateEmitter = new vscode.EventEmitter<void>();
     public readonly onDidUpdate = this.onDidUpdateEmitter.event;
 
@@ -36,10 +37,29 @@ export class ReferenceIndex {
         const batchSize = 50;
         for (let i = 0; i < files.length; i += batchSize) {
             const batch = files.slice(i, i + batchSize);
-            await Promise.all(batch.map(uri => this.indexFile(uri.fsPath)));
+            await Promise.all(batch.map(uri => this.indexFileDirect(uri)));
         }
 
         this.onDidUpdateEmitter.fire();
+    }
+
+    /**
+     * Index a file by reading directly from disk (lighter than openTextDocument).
+     * Used for initial batch indexing where documents aren't open in the editor.
+     */
+    private async indexFileDirect(uri: vscode.Uri): Promise<void> {
+        if (!isPhpFile(uri.fsPath)) {
+            return;
+        }
+        const normalizedPath = normalizePath(uri.fsPath);
+        try {
+            const raw = await vscode.workspace.fs.readFile(uri);
+            const content = Buffer.from(raw).toString('utf8');
+            this.indexFileContent(normalizedPath, content);
+        } catch (error) {
+            console.warn('PHP Better Refactors: Failed to index file:', uri.fsPath, formatError(error));
+            this.removeFile(normalizedPath);
+        }
     }
 
     /**
@@ -65,9 +85,10 @@ export class ReferenceIndex {
      * Index a file from its content directly.
      */
     indexFileContent(filePath: string, content: string): void {
-        filePath = normalizePath(filePath);
-        // Remove old entry first
-        this.removeFile(filePath);
+        // Remove old entry if re-indexing
+        if (this.entries.has(filePath)) {
+            this.removeFile(filePath);
+        }
 
         const info = parsePhpFile(content);
         const declaredFqcn = info.className
@@ -179,15 +200,18 @@ export class ReferenceIndex {
     startWatching(): void {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*.php');
 
-        // Match exclude patterns using the relative path from workspace root,
-        // consistent with how findFiles handles exclude globs.
+        // Pre-compute exclude segments once instead of per-event
+        const excludeSegments: string[] = [];
+        for (const p of this.excludePatterns) {
+            const segment = p.replace(/\*\*/g, '').replace(/\*/g, '').replace(/\\/g, '/');
+            if (segment.length > 0) {
+                excludeSegments.push(segment);
+            }
+        }
+
         const shouldExclude = (uri: vscode.Uri): boolean => {
             const rel = normalizePath(vscode.workspace.asRelativePath(uri, false));
-            return this.excludePatterns.some(p => {
-                // Convert glob to path segment: "**/vendor/**" → "/vendor/"
-                const segment = p.replace(/\*\*/g, '').replace(/\*/g, '');
-                return segment.length > 0 && rel.includes(segment.replace(/\\/g, '/'));
-            });
+            return excludeSegments.some(seg => rel.includes(seg));
         };
 
         watcher.onDidCreate(uri => {
@@ -196,12 +220,23 @@ export class ReferenceIndex {
             }
         });
         watcher.onDidChange(uri => {
-            if (!shouldExclude(uri)) {
+            if (shouldExclude(uri)) { return; }
+            const key = normalizePath(uri.fsPath);
+            const existing = this.changeTimers.get(key);
+            if (existing) { clearTimeout(existing); }
+            this.changeTimers.set(key, setTimeout(() => {
+                this.changeTimers.delete(key);
                 this.indexFile(uri.fsPath).then(() => this.onDidUpdateEmitter.fire());
-            }
+            }, 300));
         });
         watcher.onDidDelete(uri => {
             if (!shouldExclude(uri)) {
+                const delKey = normalizePath(uri.fsPath);
+                const pending = this.changeTimers.get(delKey);
+                if (pending) {
+                    clearTimeout(pending);
+                    this.changeTimers.delete(delKey);
+                }
                 this.removeFile(uri.fsPath);
                 this.onDidUpdateEmitter.fire();
             }
@@ -211,6 +246,8 @@ export class ReferenceIndex {
     }
 
     dispose(): void {
+        this.changeTimers.forEach(t => clearTimeout(t));
+        this.changeTimers.clear();
         this.disposables.forEach(d => d.dispose());
         this.onDidUpdateEmitter.dispose();
     }

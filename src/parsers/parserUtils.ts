@@ -12,6 +12,8 @@ const BUILT_IN_TYPES = new Set([
     'iterable', 'false', 'true',
 ]);
 
+const EMPTY_LOCATION: PhpLocation = { startLine: 0, startColumn: 0, endLine: 0, endColumn: 0, startOffset: 0, endOffset: 0 };
+
 export function nodeToLocation(node: any): PhpLocation {
     const loc = node.loc;
     return {
@@ -46,25 +48,25 @@ export function extractNameString(node: any): { name: string; isFullyQualified: 
 }
 
 /**
- * Resolve a class name to its FQCN using use statements and current namespace.
+ * Resolve a class name to its FQCN using a use-statement map and current namespace.
  */
 export function resolveName(
     name: string,
     isFullyQualified: boolean,
-    useStatements: UseStatement[],
+    useMap: Map<string, string>,
     currentNamespace: string | null,
 ): string {
     if (isFullyQualified || name.startsWith('\\')) {
         return stripLeadingBackslash(name);
     }
 
-    const firstSegment = name.split('\\')[0];
-    const rest = name.includes('\\') ? name.substring(name.indexOf('\\')) : '';
+    const bsPos = name.indexOf('\\');
+    const firstSegment = bsPos === -1 ? name : name.substring(0, bsPos);
+    const rest = bsPos === -1 ? '' : name.substring(bsPos);
 
-    for (const use of useStatements) {
-        if (use.shortName === firstSegment) {
-            return use.fqcn + rest;
-        }
+    const matchedFqcn = useMap.get(firstSegment);
+    if (matchedFqcn !== undefined) {
+        return matchedFqcn + rest;
     }
 
     if (currentNamespace) {
@@ -72,6 +74,17 @@ export function resolveName(
     }
 
     return name;
+}
+
+/**
+ * Build a Map from short name to FQCN for O(1) use-statement lookup.
+ */
+export function buildUseMap(useStatements: UseStatement[]): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const use of useStatements) {
+        map.set(use.shortName, use.fqcn);
+    }
+    return map;
 }
 
 export function isBuiltInType(name: string): boolean {
@@ -84,7 +97,7 @@ export function isBuiltInType(name: string): boolean {
 export function extractTypeReferences(
     typeNode: any,
     refType: ReferenceType,
-    useStatements: UseStatement[],
+    useMap: Map<string, string>,
     currentNamespace: string | null,
     references: ClassReference[],
 ): void {
@@ -93,25 +106,25 @@ export function extractTypeReferences(
     }
 
     if (typeNode.kind === 'nullable') {
-        extractTypeReferences(typeNode.type, refType, useStatements, currentNamespace, references);
+        extractTypeReferences(typeNode.type, refType, useMap, currentNamespace, references);
         return;
     }
 
     if (typeNode.kind === 'uniontype' || typeNode.kind === 'intersectiontype') {
         for (const t of typeNode.types || []) {
-            extractTypeReferences(t, refType, useStatements, currentNamespace, references);
+            extractTypeReferences(t, refType, useMap, currentNamespace, references);
         }
         return;
     }
 
     const nameInfo = extractNameString(typeNode);
     if (nameInfo && !isBuiltInType(nameInfo.name)) {
-        const resolved = resolveName(nameInfo.name, nameInfo.isFullyQualified, useStatements, currentNamespace);
+        const resolved = resolveName(nameInfo.name, nameInfo.isFullyQualified, useMap, currentNamespace);
         references.push({
             name: nameInfo.name,
             resolvedFqcn: resolved,
             type: refType,
-            loc: typeNode.loc ? nodeToLocation(typeNode) : { startLine: 0, startColumn: 0, endLine: 0, endColumn: 0, startOffset: 0, endOffset: 0 },
+            loc: typeNode.loc ? nodeToLocation(typeNode) : EMPTY_LOCATION,
         });
     }
 }

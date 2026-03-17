@@ -1,10 +1,10 @@
-import type { ClassReference, UseStatement, ReferenceType } from '../types';
+import type { ClassReference, ReferenceType } from '../types';
 import { extractNameString, nodeToLocation, resolveName, isBuiltInType, extractTypeReferences } from './parserUtils';
 
 /** Context passed to each collector function */
 export interface CollectorContext {
     node: any;
-    useStatements: UseStatement[];
+    useMap: Map<string, string>;
     currentNamespace: string | null;
     references: ClassReference[];
     /** Call to recurse into a child node */
@@ -27,7 +27,7 @@ function addRef(
     if (!nameInfo || !nameInfo.name || isBuiltInType(nameInfo.name)) {
         return false;
     }
-    const resolved = resolveName(nameInfo.name, nameInfo.isFullyQualified, ctx.useStatements, ctx.currentNamespace);
+    const resolved = resolveName(nameInfo.name, nameInfo.isFullyQualified, ctx.useMap, ctx.currentNamespace);
     ctx.references.push({
         name: nameInfo.name,
         resolvedFqcn: resolved,
@@ -124,7 +124,7 @@ function collectInstanceofRight(ctx: CollectorContext): boolean {
 
 function collectFunctionLike(ctx: CollectorContext): boolean {
     if (ctx.node.type) {
-        extractTypeReferences(ctx.node.type, 'return_type', ctx.useStatements, ctx.currentNamespace, ctx.references);
+        extractTypeReferences(ctx.node.type, 'return_type', ctx.useMap, ctx.currentNamespace, ctx.references);
     }
     // Parameter types are handled by collectParameter via child recursion — don't extract here
     return false;
@@ -132,14 +132,14 @@ function collectFunctionLike(ctx: CollectorContext): boolean {
 
 function collectParameter(ctx: CollectorContext): boolean {
     if (ctx.node.type) {
-        extractTypeReferences(ctx.node.type, 'param_type', ctx.useStatements, ctx.currentNamespace, ctx.references);
+        extractTypeReferences(ctx.node.type, 'param_type', ctx.useMap, ctx.currentNamespace, ctx.references);
     }
     return false;
 }
 
 function collectProperty(ctx: CollectorContext): boolean {
     if (ctx.node.type) {
-        extractTypeReferences(ctx.node.type, 'property_type', ctx.useStatements, ctx.currentNamespace, ctx.references);
+        extractTypeReferences(ctx.node.type, 'property_type', ctx.useMap, ctx.currentNamespace, ctx.references);
     }
     return false;
 }

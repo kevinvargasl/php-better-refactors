@@ -13,15 +13,6 @@ export function normalizePath(filePath: string): string {
     return normalized;
 }
 
-export function relativePath(from: string, to: string): string {
-    return path.relative(from, to).replace(/\\/g, '/');
-}
-
-export function isWithinDirectory(filePath: string, directory: string): boolean {
-    const normalizedFile = normalizePath(path.resolve(filePath));
-    const normalizedDir = normalizePath(path.resolve(directory));
-    return normalizedFile.startsWith(normalizedDir + '/');
-}
 
 function stripPhpExtension(filename: string): string {
     if (filename.endsWith('.php')) {

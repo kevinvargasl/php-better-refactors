@@ -6,7 +6,7 @@ import type {
     MemberDeclaration,
 } from '../types';
 import { stripLeadingBackslash, getShortName } from '../utils/phpStringUtils';
-import { nodeToLocation, forEachChild } from './parserUtils';
+import { nodeToLocation, forEachChild, buildUseMap } from './parserUtils';
 import { collectors } from './referenceCollectors';
 
 const Engine = require('php-parser');
@@ -38,76 +38,70 @@ function extractDeclarations(ast: any): Declarations {
         members: [],
     };
 
-    function walk(node: any): void {
-        if (!node || typeof node !== 'object') {
-            return;
-        }
-        if (Array.isArray(node)) {
-            for (const child of node) {
-                walk(child);
-            }
-            return;
-        }
-
-        switch (node.kind) {
-            case 'namespace': {
-                const nsName = extractNamespaceName(node.name);
-                if (nsName) {
-                    result.namespace = nsName;
-                    // Narrow the loc to just the "namespace X;" declaration,
-                    // not the entire block (which includes all children).
-                    if (node.loc) {
-                        const stmtLen = 'namespace '.length + nsName.length + 1; // +1 for ";"
-                        result.namespaceLoc = {
-                            startLine: node.loc.start.line,
-                            startColumn: node.loc.start.column,
-                            endLine: node.loc.start.line,
-                            endColumn: node.loc.start.column + stmtLen,
-                            startOffset: node.loc.start.offset,
-                            endOffset: node.loc.start.offset + stmtLen,
-                        };
-                    }
+    // Declarations only appear at the top level of the AST — no deep walk needed.
+    const topLevel = ast.children || [];
+    for (const node of topLevel) {
+        if (!node || typeof node !== 'object') { continue; }
+        processDeclarationNode(node, result);
+        // Namespace nodes contain their children inline
+        if (node.kind === 'namespace' && node.children) {
+            for (const child of node.children) {
+                if (child && typeof child === 'object') {
+                    processDeclarationNode(child, result);
                 }
-                if (node.children) {
-                    walk(node.children);
-                }
-                return;
             }
-
-            case 'usegroup':
-                result.useStatements.push(...extractUseStatements(node));
-                return;
-
-            case 'class':
-            case 'interface':
-            case 'trait':
-            case 'enum': {
-                const name = node.name;
-                const nameStr = typeof name === 'string' ? name : name?.name;
-                if (nameStr && !result.className) {
-                    result.className = nameStr;
-                    result.classType = node.kind as Declarations['classType'];
-                    const nameNode = typeof name === 'object' && name?.loc ? name : node;
-                    result.classLoc = nameNode.loc ? nodeToLocation(nameNode) : null;
-                }
-                extractMembers(node.body, result.members);
-                break;
-            }
-
-            default:
-                break;
         }
-
-        forEachChild(node, walk);
     }
 
-    walk(ast);
     return result;
+}
+
+function processDeclarationNode(node: any, result: Declarations): void {
+    switch (node.kind) {
+        case 'namespace': {
+            const nsName = extractNamespaceName(node.name);
+            if (nsName) {
+                result.namespace = nsName;
+                if (node.loc) {
+                    const stmtLen = 'namespace '.length + nsName.length + 1;
+                    result.namespaceLoc = {
+                        startLine: node.loc.start.line,
+                        startColumn: node.loc.start.column,
+                        endLine: node.loc.start.line,
+                        endColumn: node.loc.start.column + stmtLen,
+                        startOffset: node.loc.start.offset,
+                        endOffset: node.loc.start.offset + stmtLen,
+                    };
+                }
+            }
+            break;
+        }
+
+        case 'usegroup':
+            result.useStatements.push(...extractUseStatements(node));
+            break;
+
+        case 'class':
+        case 'interface':
+        case 'trait':
+        case 'enum': {
+            const name = node.name;
+            const nameStr = typeof name === 'string' ? name : name?.name;
+            if (nameStr && !result.className) {
+                result.className = nameStr;
+                result.classType = node.kind as Declarations['classType'];
+                const nameNode = typeof name === 'object' && name?.loc ? name : node;
+                result.classLoc = nameNode.loc ? nodeToLocation(nameNode) : null;
+            }
+            extractMembers(node.body, result.members);
+            break;
+        }
+    }
 }
 
 function collectReferences(
     node: any,
-    useStatements: UseStatement[],
+    useMap: Map<string, string>,
     currentNamespace: string | null,
     references: ClassReference[],
 ): void {
@@ -116,7 +110,7 @@ function collectReferences(
     }
     if (Array.isArray(node)) {
         for (const child of node) {
-            collectReferences(child, useStatements, currentNamespace, references);
+            collectReferences(child, useMap, currentNamespace, references);
         }
         return;
     }
@@ -125,17 +119,17 @@ function collectReferences(
     if (collector) {
         const skipChildren = collector({
             node,
-            useStatements,
+            useMap,
             currentNamespace,
             references,
-            recurse: (child: any) => collectReferences(child, useStatements, currentNamespace, references),
+            recurse: (child: any) => collectReferences(child, useMap, currentNamespace, references),
         });
         if (skipChildren) {
             return;
         }
     }
 
-    forEachChild(node, child => collectReferences(child, useStatements, currentNamespace, references));
+    forEachChild(node, child => collectReferences(child, useMap, currentNamespace, references));
 }
 
 function extractMembers(body: any[], members: MemberDeclaration[]): void {
@@ -225,29 +219,30 @@ function extractUseStatements(node: any): UseStatement[] {
     return results;
 }
 
-const EMPTY_RESULT: PhpFileInfo = {
+const EMPTY_RESULT: PhpFileInfo = Object.freeze({
     namespace: null,
     namespaceLoc: null,
     className: null,
     classType: null,
     classLoc: null,
-    useStatements: [],
-    references: [],
-    members: [],
-};
+    useStatements: Object.freeze([]) as readonly never[] as never[],
+    references: Object.freeze([]) as readonly never[] as never[],
+    members: Object.freeze([]) as readonly never[] as never[],
+});
 
 export function parsePhpFile(content: string): PhpFileInfo {
     let ast: any;
     try {
         ast = engine.parseCode(content, 'file.php');
     } catch {
-        return { ...EMPTY_RESULT };
+        return EMPTY_RESULT;
     }
 
     const decl = extractDeclarations(ast);
 
     const references: ClassReference[] = [];
-    collectReferences(ast, decl.useStatements, decl.namespace, references);
+    const useMap = buildUseMap(decl.useStatements);
+    collectReferences(ast, useMap, decl.namespace, references);
 
     return { ...decl, references };
 }
