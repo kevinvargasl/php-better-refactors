@@ -28,6 +28,11 @@ export class ReferenceIndex {
     }
 
     async buildIndex(): Promise<void> {
+        this.entries.clear();
+        this.fqcnToFile.clear();
+        this.fqcnToReferencingFiles.clear();
+        this.shortNameToFqcns.clear();
+
         const excludePattern = `{${this.excludePatterns.join(',')}}`;
         const files = await vscode.workspace.findFiles('**/*.php', excludePattern);
 
@@ -36,6 +41,8 @@ export class ReferenceIndex {
             const batch = files.slice(i, i + batchSize);
             await Promise.all(batch.map(uri => this.indexFileDirect(uri)));
         }
+
+        await this.indexVendorDeclarations();
 
         this.onDidUpdateEmitter.fire();
     }
@@ -91,14 +98,7 @@ export class ReferenceIndex {
 
         this.entries.set(filePath, entry);
         if (declaredFqcn) {
-            this.fqcnToFile.set(declaredFqcn, filePath);
-            const short = getShortName(declaredFqcn);
-            let list = this.shortNameToFqcns.get(short);
-            if (!list) {
-                list = [];
-                this.shortNameToFqcns.set(short, list);
-            }
-            list.push(declaredFqcn);
+            this.registerFqcn(declaredFqcn, filePath);
         }
 
         const referencedFqcns = new Set<string>();
@@ -151,6 +151,17 @@ export class ReferenceIndex {
         return this.shortNameToFqcns.get(shortName) ?? [];
     }
 
+    private registerFqcn(fqcn: string, filePath: string): void {
+        this.fqcnToFile.set(fqcn, filePath);
+        const short = getShortName(fqcn);
+        let list = this.shortNameToFqcns.get(short);
+        if (!list) {
+            list = [];
+            this.shortNameToFqcns.set(short, list);
+        }
+        list.push(fqcn);
+    }
+
     findReferencingFiles(fqcn: string): IndexEntry[] {
         const filePaths = this.fqcnToReferencingFiles.get(fqcn);
         if (!filePaths) {
@@ -164,6 +175,37 @@ export class ReferenceIndex {
             }
         }
         return results;
+    }
+
+    /**
+     * Scan vendor PHP files for class declarations using fast regex extraction.
+     */
+    private async indexVendorDeclarations(): Promise<void> {
+        const vendorFiles = await vscode.workspace.findFiles(
+            '**/vendor/**/*.php',
+            '**/vendor/composer/**'
+        );
+        if (vendorFiles.length === 0) {
+            return;
+        }
+
+        const batchSize = 100;
+        for (let i = 0; i < vendorFiles.length; i += batchSize) {
+            const batch = vendorFiles.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (uri) => {
+                try {
+                    const raw = await vscode.workspace.fs.readFile(uri);
+                    const content = Buffer.from(raw).toString('utf8');
+                    const decl = extractClassDeclarationFast(content);
+                    if (decl.className) {
+                        const fqcn = buildFqcn(decl.namespace, decl.className);
+                        if (!this.fqcnToFile.has(fqcn)) {
+                            this.registerFqcn(fqcn, normalizePath(uri.fsPath));
+                        }
+                    }
+                } catch { /* skip unreadable files */ }
+            }));
+        }
     }
 
     startWatching(): void {
@@ -212,5 +254,17 @@ export class ReferenceIndex {
         this.disposables.forEach(d => d.dispose());
         this.onDidUpdateEmitter.dispose();
     }
+}
+
+const NS_REGEX = /^\s*namespace\s+([\w\\]+)\s*[;{]/m;
+const CLASS_REGEX = /^\s*(?:(?:abstract|final|readonly)\s+)*(?:class|interface|trait|enum)\s+([A-Z_]\w*)/m;
+
+function extractClassDeclarationFast(content: string): { namespace: string | null; className: string | null } {
+    const nsMatch = NS_REGEX.exec(content);
+    const classMatch = CLASS_REGEX.exec(content);
+    return {
+        namespace: nsMatch ? nsMatch[1] : null,
+        className: classMatch ? classMatch[1] : null,
+    };
 }
 
