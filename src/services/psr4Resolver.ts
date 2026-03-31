@@ -59,8 +59,8 @@ export class Psr4Resolver {
     resolveNamespace(filePath: string): Psr4Resolution | null {
         const normalizedFile = normalizePath(path.resolve(filePath));
 
-        for (const rm of this.resolved) {
-            for (const dir of rm.dirs) {
+        for (const resolved of this.resolved) {
+            for (const dir of resolved.dirs) {
                 if (!normalizedFile.startsWith(dir.absoluteDirSlash)) {
                     continue;
                 }
@@ -69,12 +69,12 @@ export class Psr4Resolver {
                 const namespaceSegment = pathToNamespaceSegment(relPath);
 
                 const fqcn = namespaceSegment
-                    ? `${rm.trimmedPrefix}\\${namespaceSegment}`
-                    : rm.trimmedPrefix;
+                    ? `${resolved.trimmedPrefix}\\${namespaceSegment}`
+                    : resolved.trimmedPrefix;
 
                 // Mappings are sorted by prefix length descending,
                 // so the first match is the most specific one.
-                return { fqcn, mapping: rm.mapping };
+                return { fqcn, mapping: resolved.mapping };
             }
         }
 
@@ -86,11 +86,11 @@ export class Psr4Resolver {
      * Returns null if the FQCN doesn't match any PSR-4 prefix.
      */
     resolveFilePath(fqcn: string): string | null {
-        for (const rm of this.resolved) {
-            if (fqcn === rm.trimmedPrefix || fqcn.startsWith(rm.trimmedPrefix + '\\')) {
-                const remainder = fqcn === rm.trimmedPrefix ? '' : fqcn.slice(rm.trimmedPrefix.length + 1);
+        for (const resolved of this.resolved) {
+            if (fqcn === resolved.trimmedPrefix || fqcn.startsWith(resolved.trimmedPrefix + '\\')) {
+                const remainder = fqcn === resolved.trimmedPrefix ? '' : fqcn.slice(resolved.trimmedPrefix.length + 1);
                 const relPath = namespaceToRelativePath(remainder);
-                return normalizePath(path.resolve(rm.firstDirAbsolute, relPath));
+                return normalizePath(path.resolve(resolved.firstDirAbsolute, relPath));
             }
         }
 

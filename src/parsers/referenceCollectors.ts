@@ -17,12 +17,7 @@ export type CollectorFn = (ctx: CollectorContext) => boolean;
 /**
  * Try to add a reference from a name node. Returns true if a reference was added.
  */
-function addRef(
-    ctx: CollectorContext,
-    nameNode: any,
-    fallbackLocNode: any,
-    type: ReferenceType,
-): boolean {
+function addRef(ctx: CollectorContext, nameNode: any, fallbackLocNode: any, type: ReferenceType): boolean {
     const nameInfo = extractNameString(nameNode);
     if (!nameInfo || !nameInfo.name || isBuiltInType(nameInfo.name)) {
         return false;

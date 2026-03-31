@@ -1,6 +1,3 @@
-/**
- * Check if a string is a valid PHP class name.
- */
 export function isValidClassName(name: string): boolean {
     return /^[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*$/.test(name);
 }
@@ -41,8 +38,5 @@ export function buildFqcn(namespace: string | null, className: string): string {
  * Strip leading backslash from a FQCN.
  */
 export function stripLeadingBackslash(fqcn: string): string {
-    if (fqcn.startsWith('\\')) {
-        return fqcn.substring(1);
-    }
-    return fqcn;
+    return fqcn.startsWith('\\') ? fqcn.substring(1) : fqcn;
 }

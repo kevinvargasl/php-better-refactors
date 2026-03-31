@@ -34,10 +34,7 @@ function isValidDirectory(dir: string): boolean {
 /**
  * Extract PSR-4 mappings from an autoload section.
  */
-function extractMappings(
-    psr4: Record<string, string | string[]>,
-    composerDir: string,
-): Psr4Mapping[] {
+function extractMappings(psr4: Record<string, string | string[]>, composerDir: string): Psr4Mapping[] {
     const mappings: Psr4Mapping[] = [];
 
     for (const [prefix, dirs] of Object.entries(psr4)) {

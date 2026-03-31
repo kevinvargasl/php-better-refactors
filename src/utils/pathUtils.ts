@@ -5,29 +5,22 @@ import * as path from 'path';
  * On Windows, lowercases the drive letter and uses forward slashes.
  */
 export function normalizePath(filePath: string): string {
-    let normalized = filePath.replace(/\\/g, '/');
+    const normalized = filePath.replace(/\\/g, '/');
     // Normalize Windows drive letter to lowercase (D:/code → d:/code)
-    if (normalized.length >= 2 && normalized[1] === ':') {
-        normalized = normalized[0].toLowerCase() + normalized.substring(1);
-    }
-    return normalized;
+    return normalized.length >= 2 && normalized[1] === ':'
+        ? normalized[0].toLowerCase() + normalized.substring(1)
+        : normalized;
 }
 
 
 function stripPhpExtension(filename: string): string {
-    if (filename.endsWith('.php')) {
-        return filename.slice(0, -4);
-    }
-    return filename;
+    return filename.endsWith('.php') ? filename.slice(0, -4) : filename;
 }
 
 export function getBaseName(filePath: string): string {
     return stripPhpExtension(path.basename(filePath));
 }
 
-/**
- * Check if a file is a PHP file.
- */
 export function isPhpFile(filePath: string): boolean {
     return filePath.endsWith('.php');
 }

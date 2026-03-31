@@ -39,8 +39,7 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
                 continue;
             }
 
-            const alreadyImported = info.useStatements.some(u => u.shortName === ref.name);
-            if (alreadyImported) {
+            if (info.useStatements.some(use => use.shortName === ref.name)) {
                 continue;
             }
 
@@ -78,17 +77,9 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
         return actions.length > 0 ? actions : undefined;
     }
 
-    private findUseInsertPosition(
-        info: PhpFileInfo,
-        document: vscode.TextDocument,
-    ): vscode.Position {
+    private findUseInsertPosition(info: PhpFileInfo, document: vscode.TextDocument): vscode.Position {
         if (info.useStatements.length > 0) {
-            let lastLine = 0;
-            for (const use of info.useStatements) {
-                if (use.loc.endLine > lastLine) {
-                    lastLine = use.loc.endLine;
-                }
-            }
+            const lastLine = Math.max(...info.useStatements.map(use => use.loc.endLine));
             for (let i = lastLine - 1; i < document.lineCount; i++) {
                 const lineText = document.lineAt(i).text;
                 if (lineText.includes(';')) {

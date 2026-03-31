@@ -101,13 +101,10 @@ export class ReferenceIndex {
             this.registerFqcn(declaredFqcn, filePath);
         }
 
-        const referencedFqcns = new Set<string>();
-        for (const use of entry.useStatements) {
-            referencedFqcns.add(use.fqcn);
-        }
-        for (const ref of entry.references) {
-            referencedFqcns.add(ref.resolvedFqcn);
-        }
+        const referencedFqcns = new Set([
+            ...entry.useStatements.map(use => use.fqcn),
+            ...entry.references.map(ref => ref.resolvedFqcn),
+        ]);
         for (const fqcn of referencedFqcns) {
             let files = this.fqcnToReferencingFiles.get(fqcn);
             if (!files) {
@@ -167,14 +164,7 @@ export class ReferenceIndex {
         if (!filePaths) {
             return [];
         }
-        const results: IndexEntry[] = [];
-        for (const fp of filePaths) {
-            const entry = this.entries.get(fp);
-            if (entry) {
-                results.push(entry);
-            }
-        }
-        return results;
+        return [...filePaths].map(filePath => this.entries.get(filePath)).filter((entry): entry is IndexEntry => entry !== undefined);
     }
 
     /**

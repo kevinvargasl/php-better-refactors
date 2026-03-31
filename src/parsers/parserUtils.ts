@@ -60,9 +60,9 @@ export function resolveName(
         return stripLeadingBackslash(name);
     }
 
-    const bsPos = name.indexOf('\\');
-    const firstSegment = bsPos === -1 ? name : name.substring(0, bsPos);
-    const rest = bsPos === -1 ? '' : name.substring(bsPos);
+    const backslashPos = name.indexOf('\\');
+    const firstSegment = backslashPos === -1 ? name : name.substring(0, backslashPos);
+    const rest = backslashPos === -1 ? '' : name.substring(backslashPos);
 
     const matchedFqcn = useMap.get(firstSegment);
     if (matchedFqcn !== undefined) {
@@ -80,11 +80,7 @@ export function resolveName(
  * Build a Map from short name to FQCN for O(1) use-statement lookup.
  */
 export function buildUseMap(useStatements: UseStatement[]): Map<string, string> {
-    const map = new Map<string, string>();
-    for (const use of useStatements) {
-        map.set(use.shortName, use.fqcn);
-    }
-    return map;
+    return new Map(useStatements.map(use => [use.shortName, use.fqcn]));
 }
 
 export function isBuiltInType(name: string): boolean {
@@ -111,8 +107,8 @@ export function extractTypeReferences(
     }
 
     if (typeNode.kind === 'uniontype' || typeNode.kind === 'intersectiontype') {
-        for (const t of typeNode.types || []) {
-            extractTypeReferences(t, refType, useMap, currentNamespace, references);
+        for (const typeItem of typeNode.types || []) {
+            extractTypeReferences(typeItem, refType, useMap, currentNamespace, references);
         }
         return;
     }

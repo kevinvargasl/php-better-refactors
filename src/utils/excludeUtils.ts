@@ -1,7 +1,7 @@
 export function buildExcludeSegments(patterns: string[]): string[] {
     const segments: string[] = [];
-    for (const p of patterns) {
-        const segment = p.replace(/\*\*/g, '').replace(/\*/g, '').replace(/\\/g, '/');
+    for (const pattern of patterns) {
+        const segment = pattern.replace(/\*\*/g, '').replace(/\*/g, '').replace(/\\/g, '/');
         if (segment.length > 0 && segment !== '/') {
             segments.push(segment);
         }

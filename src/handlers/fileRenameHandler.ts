@@ -41,9 +41,7 @@ export class FileRenameHandler {
                 continue;
             }
 
-            const oldDir = path.dirname(oldUri.fsPath);
-            const newDir = path.dirname(newUri.fsPath);
-            const sameDir = oldDir === newDir;
+            const sameDir = path.dirname(oldUri.fsPath) === path.dirname(newUri.fsPath);
             const oldName = getBaseName(oldUri.fsPath);
             const newName = getBaseName(newUri.fsPath);
             const nameChanged = oldName !== newName;
@@ -62,11 +60,7 @@ export class FileRenameHandler {
         return mergeEdits(edits);
     }
 
-    private async processRename(
-        oldUri: vscode.Uri,
-        oldName: string,
-        newName: string
-    ): Promise<vscode.WorkspaceEdit> {
+    private async processRename(oldUri: vscode.Uri, oldName: string, newName: string): Promise<vscode.WorkspaceEdit> {
         const combinedEdit = new vscode.WorkspaceEdit();
 
         try {
@@ -91,10 +85,7 @@ export class FileRenameHandler {
         return combinedEdit;
     }
 
-    private async processMove(
-        oldUri: vscode.Uri,
-        newUri: vscode.Uri
-    ): Promise<vscode.WorkspaceEdit> {
+    private async processMove(oldUri: vscode.Uri, newUri: vscode.Uri): Promise<vscode.WorkspaceEdit> {
         const combinedEdit = new vscode.WorkspaceEdit();
 
         if (!this.resolver) {

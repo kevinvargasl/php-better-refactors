@@ -92,20 +92,15 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         members: MemberDeclaration[],
         position: vscode.Position,
     ): MemberDeclaration | undefined {
-        for (const member of members) {
+        return members.find(member => {
             const startLine = member.loc.startLine - 1;
             const endLine = member.loc.endLine - 1;
             const startCol = member.kind === 'property'
                 ? member.loc.startColumn + 1 // skip $
                 : member.loc.startColumn;
-            const endCol = member.loc.endColumn;
-
-            if (position.line >= startLine && position.line <= endLine
-                && position.character >= startCol && position.character <= endCol) {
-                return member;
-            }
-        }
-        return undefined;
+            return position.line >= startLine && position.line <= endLine
+                && position.character >= startCol && position.character <= member.loc.endColumn;
+        });
     }
 
     private async renameClass(

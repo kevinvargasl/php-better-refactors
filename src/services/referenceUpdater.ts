@@ -9,7 +9,7 @@ import { formatError } from '../utils/errorUtils';
 interface ParsedEntry {
     entry: IndexEntry;
     uri: vscode.Uri;
-    doc: vscode.TextDocument | null;
+    document: vscode.TextDocument | null;
     useStatements: UseStatement[];
     references: ClassReference[];
 }
@@ -38,7 +38,7 @@ export class ReferenceUpdater {
         // Pre-fetch and parse all documents in parallel
         const parsed = await this.fetchAndParseAll(referencingFiles);
 
-        for (const { uri, doc, useStatements, references } of parsed) {
+        for (const { uri, document, useStatements, references } of parsed) {
             // Update use statements
             for (const use of useStatements) {
                 if (use.fqcn !== oldFqcn) {
@@ -57,7 +57,7 @@ export class ReferenceUpdater {
                         const newItemName = newFqcn.substring(groupPrefixWithSep.length);
                         edit.replace(uri, useRange, newItemName);
                     } else {
-                        this.removeGroupItemAndAddUse(edit, uri, use, useStatements, newFqcn, doc);
+                        this.removeGroupItemAndAddUse(edit, uri, use, useStatements, newFqcn, document);
                     }
                 } else {
                     edit.replace(uri, useRange, newFqcn);
@@ -73,10 +73,9 @@ export class ReferenceUpdater {
                 if (ref.resolvedFqcn !== oldFqcn) {
                     continue;
                 }
-                const refName = ref.name;
-                const strippedRef = refName.startsWith('\\') ? refName.substring(1) : refName;
+                const strippedRef = ref.name.startsWith('\\') ? ref.name.substring(1) : ref.name;
                 if (strippedRef === oldFqcn) {
-                    const prefix = refName.startsWith('\\') ? '\\' : '';
+                    const prefix = ref.name.startsWith('\\') ? '\\' : '';
                     edit.replace(uri, locToRange(ref.loc), prefix + newFqcn);
                 }
             }
@@ -97,17 +96,17 @@ export class ReferenceUpdater {
             const batchResults = await Promise.all(batch.map(async (entry) => {
                 const uri = vscode.Uri.file(entry.filePath);
                 try {
-                    const doc = await vscode.workspace.openTextDocument(uri);
-                    const freshInfo = parsePhpFile(doc.getText());
+                    const document = await vscode.workspace.openTextDocument(uri);
+                    const freshInfo = parsePhpFile(document.getText());
                     return {
-                        entry, uri, doc,
+                        entry, uri, document,
                         useStatements: freshInfo.useStatements,
                         references: freshInfo.references,
                     };
                 } catch (error) {
                     console.warn('PHP Better Refactors: Failed to read file for reference update:', entry.filePath, formatError(error));
                     return {
-                        entry, uri, doc: null,
+                        entry, uri, document: null,
                         useStatements: entry.useStatements,
                         references: entry.references,
                     };
@@ -143,15 +142,15 @@ export class ReferenceUpdater {
         use: UseStatement,
         allUseStatements: UseStatement[],
         newFqcn: string,
-        doc: vscode.TextDocument | null,
+        document: vscode.TextDocument | null,
     ): void {
         const line = use.loc.startLine - 1;
-        const lineText = doc ? doc.lineAt(line).text : '';
+        const lineText = document ? document.lineAt(line).text : '';
 
         // Count how many items share this group prefix (early exit)
         let groupCount = 0;
-        for (const u of allUseStatements) {
-            if (u.groupPrefix === use.groupPrefix && ++groupCount > 1) { break; }
+        for (const stmt of allUseStatements) {
+            if (stmt.groupPrefix === use.groupPrefix && ++groupCount > 1) { break; }
         }
 
         if (groupCount <= 1) {

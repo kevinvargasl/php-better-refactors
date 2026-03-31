@@ -184,9 +184,7 @@ function extractUseStatements(node: any): UseStatement[] {
     }
 
     const results: UseStatement[] = [];
-    const groupPrefix = node.name
-        ? (typeof node.name === 'string' ? node.name : (node.name?.name || ''))
-        : '';
+    const groupPrefix = typeof node.name === 'string' ? node.name : node.name?.name ?? '';
 
     for (const item of node.items || []) {
         if (item.kind !== 'useitem') {
