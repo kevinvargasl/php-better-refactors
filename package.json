@@ -2,7 +2,7 @@
   "name": "php-better-refactors",
   "displayName": "PHP Better Refactors",
   "description": "PSR-4-aware PHP refactoring: automatic class/file/namespace, properties and methods renaming and cross-project reference updates",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "publisher": "kevinvargasl",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -70,7 +70,7 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",
-    "@types/node": "^20.11.0",
+    "@types/node": "^20.19.39",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.57.0",
     "@typescript-eslint/parser": "^8.57.0",
@@ -85,6 +85,6 @@
     "diff": "^8.0.3"
   },
   "dependencies": {
-    "php-parser": "3.4.0"
+    "php-parser": "3.5.1"
   }
 }

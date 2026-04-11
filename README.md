@@ -7,7 +7,7 @@ PSR-4-aware PHP refactoring for VS Code. Automatically updates class names, name
 
 ## Features
 
-- **Rename Symbol** for class names, methods, and properties with cross-project reference updates
+- **Rename Symbol** for class names, methods, properties, and constructor promoted properties with cross-project reference updates
 - **File rename → Class rename** — renaming `User.php` to `Account.php` renames class `User` to class `Account` and updates all references
 - **File move → Namespace update** — moving a file to a different folder updates the `namespace` declaration and cross-project reference updates
 - **Import class** quick fix — suggests adding `use` statements for unresolved class references
@@ -77,6 +77,10 @@ All settings are under `phpBetterRefactors.*` in VS Code settings.
 | Command | Description |
 |---|---|
 | `PHP Better Refactors: Rebuild Index` | Re-scan all PHP files and rebuild the reference index |
+
+## Known Limitations
+
+- References inside Blade templates (`.blade.php`) are not updated during renames or moves
 
 ## Requirements
 

@@ -141,24 +141,27 @@ function extractMembers(body: any[], members: MemberDeclaration[]): void {
             const nameNode = member.name;
             const name = typeof nameNode === 'string' ? nameNode : nameNode?.name;
             if (name && nameNode?.loc) {
-                members.push({
-                    name,
-                    kind: 'method',
-                    isStatic: !!member.isStatic,
-                    loc: nodeToLocation(nameNode),
-                });
+                members.push({name, kind: 'method', isStatic: !!member.isStatic, loc: nodeToLocation(nameNode)});
+            }
+            // Constructor property promotion (PHP 8.0+)
+            // Promoted params have flags > 0 (1=public, 2=protected, 4=private)
+            if (name === '__construct' && member.arguments) {
+                for (const arg of member.arguments) {
+                    if (arg.kind === 'parameter' && arg.flags > 0) {
+                        const paramNameNode = arg.name;
+                        const paramName = typeof paramNameNode === 'string' ? paramNameNode : paramNameNode?.name;
+                        if (paramName && paramNameNode?.loc) {
+                            members.push({name: paramName, kind: 'property', isStatic: false, loc: nodeToLocation(paramNameNode)});
+                        }
+                    }
+                }
             }
         } else if (member.kind === 'propertystatement') {
             for (const prop of member.properties || []) {
                 const nameNode = prop.name;
                 const name = typeof nameNode === 'string' ? nameNode : nameNode?.name;
                 if (name && nameNode?.loc) {
-                    members.push({
-                        name,
-                        kind: 'property',
-                        isStatic: !!member.isStatic,
-                        loc: nodeToLocation(nameNode),
-                    });
+                    members.push({name, kind: 'property', isStatic: !!member.isStatic, loc: nodeToLocation(nameNode)});
                 }
             }
         }

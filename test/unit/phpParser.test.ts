@@ -204,6 +204,35 @@ class Foo {
             assert.strictEqual(methods[1].isStatic, true);
         });
 
+        it('should extract constructor promoted properties as members', () => {
+            const result = parsePhpFile(`<?php
+namespace App;
+
+class Column {
+    private ?string $label = null;
+
+    public function __construct(
+        public readonly string $field,
+        protected int $order = 0,
+        private bool $visible = true,
+        string $notPromoted = ''
+    ) {}
+}
+`);
+            const props = result.members.filter(m => m.kind === 'property');
+            const methods = result.members.filter(m => m.kind === 'method');
+            assert.strictEqual(methods.length, 1);
+            assert.strictEqual(methods[0].name, '__construct');
+            // 1 regular property + 3 promoted properties (not $notPromoted which has no visibility)
+            assert.strictEqual(props.length, 4);
+            assert.strictEqual(props[0].name, 'label');
+            assert.strictEqual(props[1].name, 'field');
+            assert.strictEqual(props[2].name, 'order');
+            assert.strictEqual(props[3].name, 'visible');
+            // Promoted properties are never static
+            assert.strictEqual(props[1].isStatic, false);
+        });
+
         it('should detect static call references', () => {
             const result = parsePhpFile(`<?php
 namespace App;
