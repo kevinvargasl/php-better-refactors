@@ -5,10 +5,11 @@ import { ReferenceIndex } from '../services/referenceIndex';
 import { ReferenceUpdater } from '../services/referenceUpdater';
 import { isPhpFile } from '../utils/pathUtils';
 import { buildFqcn, isValidClassName } from '../utils/phpStringUtils';
-import { findMemberReferences } from '../utils/memberSearch';
+import { findMemberReferences, hasPotentialMemberReferenceText } from '../utils/memberSearch';
 import { locToRange, mergeWorkspaceEdit } from '../utils/workspaceEditUtils';
 import { MemberDeclaration, PhpFileInfo } from '../types';
 import { formatError } from '../utils/errorUtils';
+import { readTextFilePreferOpenDocument } from '../utils/documentUtils';
 
 /**
  * Provides "Rename Symbol" (F2 / right-click → Rename) for PHP class names,
@@ -174,6 +175,11 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
                 const batch = referencingFiles.slice(i, i + batchSize);
                 await Promise.all(batch.map(async (entry) => {
                     try {
+                        const text = await readTextFilePreferOpenDocument(entry.filePath);
+                        if (!hasPotentialMemberReferenceText(text, oldName, isProperty)) {
+                            return;
+                        }
+
                         const uri = vscode.Uri.file(entry.filePath);
                         const doc = await vscode.workspace.openTextDocument(uri);
                         const refs = findMemberReferences(doc, oldName, isProperty);

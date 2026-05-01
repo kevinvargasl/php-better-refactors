@@ -2,7 +2,7 @@
   "name": "php-better-refactors",
   "displayName": "PHP Better Refactors",
   "description": "PSR-4-aware PHP refactoring: automatic class/file/namespace, properties and methods renaming and cross-project reference updates",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "kevinvargasl",
   "license": "MIT",
   "icon": "assets/icon.png",

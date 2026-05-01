@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import { ReferenceIndex } from './referenceIndex';
-import { parsePhpFile } from '../parsers/phpParser';
 import { getShortName } from '../utils/phpStringUtils';
 import { UseStatement, ClassReference, IndexEntry, PhpLocation } from '../types';
 import { locToRange } from '../utils/workspaceEditUtils';
 import { formatError } from '../utils/errorUtils';
+import { findOpenFileDocument, readTextFilePreferOpenDocument } from '../utils/documentUtils';
+import { getCachedParse } from '../utils/parseCache';
 
 interface ParsedEntry {
     entry: IndexEntry;
@@ -22,7 +23,7 @@ export class ReferenceUpdater {
 
     /**
      * Build a WorkspaceEdit that updates all references from oldFqcn to newFqcn.
-     * Re-parses each referencing file to get fresh locations (handles unsaved edits).
+     * Uses indexed analysis for closed files and fresh parses for open documents.
      */
     async buildEditsForRename(oldFqcn: string, newFqcn: string): Promise<vscode.WorkspaceEdit> {
         const edit = new vscode.WorkspaceEdit();
@@ -35,8 +36,9 @@ export class ReferenceUpdater {
             return edit;
         }
 
-        // Pre-fetch and parse all documents in parallel
+        // Analyze open documents live, but reuse indexed data for closed files.
         const parsed = await this.fetchAndParseAll(referencingFiles);
+        const lineCache = new Map<string, string[]>();
 
         for (const { uri, document, useStatements, references } of parsed) {
             // Update use statements
@@ -57,7 +59,7 @@ export class ReferenceUpdater {
                         const newItemName = newFqcn.substring(groupPrefixWithSep.length);
                         edit.replace(uri, useRange, newItemName);
                     } else {
-                        this.removeGroupItemAndAddUse(edit, uri, use, useStatements, newFqcn, document);
+                        await this.removeGroupItemAndAddUse(edit, uri, use, useStatements, newFqcn, document, lineCache);
                     }
                 } else {
                     edit.replace(uri, useRange, newFqcn);
@@ -85,7 +87,7 @@ export class ReferenceUpdater {
     }
 
     /**
-     * Fetch and parse all referencing files in parallel batches.
+     * Reuse indexed analysis for closed files and only re-parse currently open documents.
      */
     private async fetchAndParseAll(entries: IndexEntry[]): Promise<ParsedEntry[]> {
         const batchSize = 50;
@@ -95,22 +97,26 @@ export class ReferenceUpdater {
             const batch = entries.slice(i, i + batchSize);
             const batchResults = await Promise.all(batch.map(async (entry) => {
                 const uri = vscode.Uri.file(entry.filePath);
-                try {
-                    const document = await vscode.workspace.openTextDocument(uri);
-                    const freshInfo = parsePhpFile(document.getText());
-                    return {
-                        entry, uri, document,
-                        useStatements: freshInfo.useStatements,
-                        references: freshInfo.references,
-                    };
-                } catch (error) {
-                    console.warn('PHP Better Refactors: Failed to read file for reference update:', entry.filePath, formatError(error));
-                    return {
-                        entry, uri, document: null,
-                        useStatements: entry.useStatements,
-                        references: entry.references,
-                    };
+                const openDocument = findOpenFileDocument(entry.filePath) ?? null;
+
+                if (openDocument) {
+                    try {
+                        const freshInfo = getCachedParse(openDocument);
+                        return {
+                            entry, uri, document: openDocument,
+                            useStatements: freshInfo.useStatements,
+                            references: freshInfo.references,
+                        };
+                    } catch (error) {
+                        console.warn('PHP Better Refactors: Failed to parse open file for reference update:', entry.filePath, formatError(error));
+                    }
                 }
+
+                return {
+                    entry, uri, document: openDocument,
+                    useStatements: entry.useStatements,
+                    references: entry.references,
+                };
             }));
             results.push(...batchResults);
         }
@@ -136,16 +142,17 @@ export class ReferenceUpdater {
     /**
      * Remove an item from a group use statement and add a standalone use line.
      */
-    private removeGroupItemAndAddUse(
+    private async removeGroupItemAndAddUse(
         edit: vscode.WorkspaceEdit,
         uri: vscode.Uri,
         use: UseStatement,
         allUseStatements: UseStatement[],
         newFqcn: string,
         document: vscode.TextDocument | null,
-    ): void {
+        lineCache: Map<string, string[]>,
+    ): Promise<void> {
         const line = use.loc.startLine - 1;
-        const lineText = document ? document.lineAt(line).text : '';
+        const lineText = await this.getLineText(uri.fsPath, line, document, lineCache);
 
         // Count how many items share this group prefix (early exit)
         let groupCount = 0;
@@ -180,6 +187,26 @@ export class ReferenceUpdater {
         const removeRange = new vscode.Range(line, removeStart, line, removeEnd);
         edit.replace(uri, removeRange, '');
         edit.insert(uri, new vscode.Position(line + 1, 0), `use ${newFqcn};\n`);
+    }
+
+    private async getLineText(
+        filePath: string,
+        line: number,
+        document: vscode.TextDocument | null,
+        lineCache: Map<string, string[]>,
+    ): Promise<string> {
+        if (document) {
+            return line < document.lineCount ? document.lineAt(line).text : '';
+        }
+
+        let lines = lineCache.get(filePath);
+        if (!lines) {
+            const content = await readTextFilePreferOpenDocument(filePath);
+            lines = content.split(/\r?\n/);
+            lineCache.set(filePath, lines);
+        }
+
+        return lines[line] ?? '';
     }
 
     private buildUseStatementText(fqcn: string, alias: string | null, groupPrefix?: string): string {

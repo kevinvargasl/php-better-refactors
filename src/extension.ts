@@ -9,8 +9,12 @@ import { PhpClassRenameProvider } from './providers/renameProvider';
 import { ImportClassProvider } from './providers/importClassProvider';
 import { Psr4Mapping, ExtensionConfig } from './types';
 import { formatError } from './utils/errorUtils';
+import { readTextFilePreferOpenDocument } from './utils/documentUtils';
+
+const COMPOSER_RELOAD_DEBOUNCE_MS = 300;
 
 let referenceIndex: ReferenceIndex | undefined;
+let composerReloadTimer: NodeJS.Timeout | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     const config = getConfig();
@@ -62,10 +66,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Watch for composer.json changes to reload PSR-4 mappings
     const composerWatcher = vscode.workspace.createFileSystemWatcher('**/composer.json');
-    composerWatcher.onDidChange(() => loadPsr4Mappings(resolver));
-    composerWatcher.onDidCreate(() => loadPsr4Mappings(resolver));
-    composerWatcher.onDidDelete(() => loadPsr4Mappings(resolver));
-    context.subscriptions.push(composerWatcher);
+    const scheduleComposerReload = (): void => {
+        if (composerReloadTimer) {
+            clearTimeout(composerReloadTimer);
+        }
+        composerReloadTimer = setTimeout(() => {
+            composerReloadTimer = undefined;
+            void loadPsr4Mappings(resolver);
+        }, COMPOSER_RELOAD_DEBOUNCE_MS);
+    };
+    composerWatcher.onDidChange(scheduleComposerReload);
+    composerWatcher.onDidCreate(scheduleComposerReload);
+    composerWatcher.onDidDelete(scheduleComposerReload);
+    context.subscriptions.push(composerWatcher, { dispose: () => {
+        if (composerReloadTimer) {
+            clearTimeout(composerReloadTimer);
+            composerReloadTimer = undefined;
+        }
+    } });
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(event => {
@@ -95,6 +113,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
+    if (composerReloadTimer) {
+        clearTimeout(composerReloadTimer);
+        composerReloadTimer = undefined;
+    }
     referenceIndex?.dispose();
 }
 
@@ -119,8 +141,7 @@ async function loadPsr4Mappings(resolver: Psr4Resolver): Promise<void> {
 
         for (const composerPath of composerFiles) {
             try {
-                const document = await vscode.workspace.openTextDocument(composerPath);
-                const content = document.getText();
+                const content = await readTextFilePreferOpenDocument(composerPath);
                 const mappings = parseComposerJson(content, path.dirname(composerPath));
                 allMappings.push(...mappings);
             } catch (error) {

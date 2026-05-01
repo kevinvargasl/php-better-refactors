@@ -2,6 +2,22 @@ import * as vscode from 'vscode';
 
 const PHP_IDENTIFIER = /^[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*$/;
 
+export function hasPotentialMemberReferenceText(
+    text: string,
+    memberName: string,
+    isProperty: boolean,
+): boolean {
+    if (!PHP_IDENTIFIER.test(memberName)) {
+        return false;
+    }
+
+    if (isProperty) {
+        return text.includes(`->${memberName}`) || text.includes(`::$${memberName}`);
+    }
+
+    return text.includes(`->${memberName}`) || text.includes(`::${memberName}`);
+}
+
 /**
  * Find all occurrences of a member name (method or property) in a document.
  * Searches for patterns like ->name, ::name, and ::$name.
@@ -18,6 +34,9 @@ export function findMemberReferences(
     }
 
     const text = document.getText();
+    if (!hasPotentialMemberReferenceText(text, memberName, isProperty)) {
+        return ranges;
+    }
 
     // Build patterns to match:
     // ->methodName(  or  ->propertyName  (instance access)

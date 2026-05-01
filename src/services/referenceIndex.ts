@@ -5,6 +5,7 @@ import { isPhpFile, normalizePath } from '../utils/pathUtils';
 import { buildExcludeSegments, matchesExcludeSegments } from '../utils/excludeUtils';
 import { buildFqcn, getShortName } from '../utils/phpStringUtils';
 import { formatError } from '../utils/errorUtils';
+import { readTextFilePreferOpenDocument } from '../utils/documentUtils';
 
 /**
  * Workspace-wide index of all PHP class declarations and references.
@@ -69,8 +70,7 @@ export class ReferenceIndex {
 
         const normalizedPath = normalizePath(filePath);
         try {
-            const document = await vscode.workspace.openTextDocument(filePath);
-            const content = document.getText();
+            const content = await readTextFilePreferOpenDocument(filePath);
             this.indexFileContent(normalizedPath, content);
         } catch (error) {
             console.warn('PHP Better Refactors: Failed to index file:', filePath, formatError(error));
@@ -132,10 +132,10 @@ export class ReferenceIndex {
             }
         }
         for (const use of existing.useStatements) {
-            this.fqcnToReferencingFiles.get(use.fqcn)?.delete(normalized);
+            this.removeReferencingFile(use.fqcn, normalized);
         }
         for (const ref of existing.references) {
-            this.fqcnToReferencingFiles.get(ref.resolvedFqcn)?.delete(normalized);
+            this.removeReferencingFile(ref.resolvedFqcn, normalized);
         }
         this.entries.delete(normalized);
     }
@@ -165,6 +165,18 @@ export class ReferenceIndex {
             return [];
         }
         return [...filePaths].map(filePath => this.entries.get(filePath)).filter((entry): entry is IndexEntry => entry !== undefined);
+    }
+
+    private removeReferencingFile(fqcn: string, filePath: string): void {
+        const files = this.fqcnToReferencingFiles.get(fqcn);
+        if (!files) {
+            return;
+        }
+
+        files.delete(filePath);
+        if (files.size === 0) {
+            this.fqcnToReferencingFiles.delete(fqcn);
+        }
     }
 
     /**
