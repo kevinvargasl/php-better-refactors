@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { IndexEntry } from '../types';
 import { parsePhpFile } from '../parsers/phpParser';
 import { isPhpFile, normalizePath } from '../utils/pathUtils';
-import { buildExcludeSegments, matchesExcludeSegments } from '../utils/excludeUtils';
+import { buildExcludeMatchers, matchesExcludePatterns } from '../utils/excludeUtils';
 import { buildFqcn, getShortName } from '../utils/phpStringUtils';
 import { formatError } from '../utils/errorUtils';
 import { readTextFilePreferOpenDocument } from '../utils/documentUtils';
@@ -213,10 +213,10 @@ export class ReferenceIndex {
     startWatching(): void {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*.php');
 
-        const excludeSegments = buildExcludeSegments(this.excludePatterns);
+        const excludeMatchers = buildExcludeMatchers(this.excludePatterns);
         const shouldExclude = (uri: vscode.Uri): boolean => {
             const rel = normalizePath(vscode.workspace.asRelativePath(uri, false));
-            return matchesExcludeSegments(rel, excludeSegments);
+            return matchesExcludePatterns(rel, excludeMatchers);
         };
 
         watcher.onDidCreate(uri => {

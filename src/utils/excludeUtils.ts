@@ -1,15 +1,19 @@
-export function buildExcludeSegments(patterns: string[]): string[] {
-    const segments: string[] = [];
-    for (const pattern of patterns) {
-        const segment = pattern.replace(/\*\*/g, '').replace(/\*/g, '').replace(/\\/g, '/');
-        if (segment.length > 0 && segment !== '/') {
-            segments.push(segment);
-        }
-    }
-    return segments;
+import { Minimatch } from 'minimatch';
+
+const MATCH_OPTIONS = {
+    dot: true,
+    nocase: process.platform === 'win32',
+    nocomment: true,
+    nonegate: true,
+};
+
+export function buildExcludeMatchers(patterns: string[]): Minimatch[] {
+    return patterns
+        .filter(pattern => pattern.length > 0)
+        .map(pattern => new Minimatch(pattern.replace(/\\/g, '/'), MATCH_OPTIONS));
 }
 
-export function matchesExcludeSegments(relPath: string, segments: string[]): boolean {
-    const prefixed = '/' + relPath;
-    return segments.some(seg => prefixed.includes(seg));
+export function matchesExcludePatterns(relPath: string, matchers: Minimatch[]): boolean {
+    const normalizedPath = relPath.replace(/\\/g, '/').replace(/^\.\//, '');
+    return matchers.some(matcher => matcher.match(normalizedPath));
 }

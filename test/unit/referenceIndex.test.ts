@@ -1,30 +1,16 @@
 import * as assert from 'assert';
-import { buildExcludeSegments, matchesExcludeSegments } from '../../src/utils/excludeUtils';
+import { buildExcludeMatchers, matchesExcludePatterns } from '../../src/utils/excludeUtils';
 
-describe('buildExcludeSegments', () => {
-    it('strips ** and converts to path segments', () => {
-        const segments = buildExcludeSegments(['**/vendor/**', '**/node_modules/**']);
-        assert.deepStrictEqual(segments, ['/vendor/', '/node_modules/']);
-    });
-
-    it('handles storage pattern', () => {
-        const segments = buildExcludeSegments(['**/storage/**']);
-        assert.deepStrictEqual(segments, ['/storage/']);
-    });
-
-    it('handles dotfile cache patterns', () => {
-        const segments = buildExcludeSegments(['**/.phpunit.cache/**', '**/.phpstan/**', '**/.php-cs-fixer.cache/**']);
-        assert.deepStrictEqual(segments, ['/.phpunit.cache/', '/.phpstan/', '/.php-cs-fixer.cache/']);
-    });
-
-    it('ignores empty segments', () => {
-        const segments = buildExcludeSegments(['**/**', '**/vendor/**']);
-        assert.deepStrictEqual(segments, ['/vendor/']);
+describe('buildExcludeMatchers', () => {
+    it('ignores empty patterns and normalizes path separators', () => {
+        const matchers = buildExcludeMatchers(['', '**\\vendor\\**']);
+        assert.strictEqual(matchers.length, 1);
+        assert.strictEqual(matchers[0].match('vendor/package/Foo.php'), true);
     });
 });
 
-describe('matchesExcludeSegments', () => {
-    const defaultSegments = buildExcludeSegments([
+describe('matchesExcludePatterns', () => {
+    const defaultMatchers = buildExcludeMatchers([
         '**/vendor/**',
         '**/node_modules/**',
         '**/storage/**',
@@ -34,34 +20,53 @@ describe('matchesExcludeSegments', () => {
     ]);
 
     it('excludes vendor files', () => {
-        assert.strictEqual(matchesExcludeSegments('vendor/laravel/framework/src/Foo.php', defaultSegments), true);
+        assert.strictEqual(matchesExcludePatterns('vendor/laravel/framework/src/Foo.php', defaultMatchers), true);
     });
 
     it('excludes storage/framework/views', () => {
-        assert.strictEqual(matchesExcludeSegments('storage/framework/views/abc123.php', defaultSegments), true);
+        assert.strictEqual(matchesExcludePatterns('storage/framework/views/abc123.php', defaultMatchers), true);
     });
 
     it('excludes .phpunit.cache', () => {
-        assert.strictEqual(matchesExcludeSegments('.phpunit.cache/result.cache', defaultSegments), true);
+        assert.strictEqual(matchesExcludePatterns('.phpunit.cache/result.cache', defaultMatchers), true);
     });
 
     it('excludes .phpstan', () => {
-        assert.strictEqual(matchesExcludeSegments('.phpstan/result.php', defaultSegments), true);
+        assert.strictEqual(matchesExcludePatterns('.phpstan/result.php', defaultMatchers), true);
     });
 
     it('excludes .php-cs-fixer.cache', () => {
-        assert.strictEqual(matchesExcludeSegments('.php-cs-fixer.cache/something.php', defaultSegments), true);
+        assert.strictEqual(matchesExcludePatterns('.php-cs-fixer.cache/something.php', defaultMatchers), true);
     });
 
     it('does not exclude app source files', () => {
-        assert.strictEqual(matchesExcludeSegments('app/Models/Category.php', defaultSegments), false);
+        assert.strictEqual(matchesExcludePatterns('app/Models/Category.php', defaultMatchers), false);
     });
 
     it('does not exclude test files', () => {
-        assert.strictEqual(matchesExcludeSegments('tests/Feature/CategoryTest.php', defaultSegments), false);
+        assert.strictEqual(matchesExcludePatterns('tests/Feature/CategoryTest.php', defaultMatchers), false);
     });
 
     it('does not exclude files that merely contain the word vendor in name', () => {
-        assert.strictEqual(matchesExcludeSegments('app/Services/VendorService.php', defaultSegments), false);
+        assert.strictEqual(matchesExcludePatterns('app/Services/VendorService.php', defaultMatchers), false);
+    });
+
+    it('supports wildcard filename patterns', () => {
+        const matchers = buildExcludeMatchers(['**/*.generated.php']);
+        assert.strictEqual(matchesExcludePatterns('src/Models/User.generated.php', matchers), true);
+        assert.strictEqual(matchesExcludePatterns('src/Models/User.php', matchers), false);
+    });
+
+    it('supports single-segment wildcards', () => {
+        const matchers = buildExcludeMatchers(['src/*/Generated/**']);
+        assert.strictEqual(matchesExcludePatterns('src/Domain/Generated/User.php', matchers), true);
+        assert.strictEqual(matchesExcludePatterns('src/Domain/Nested/Generated/User.php', matchers), false);
+    });
+
+    it('supports brace expansion', () => {
+        const matchers = buildExcludeMatchers(['**/*.{generated,cache}.php']);
+        assert.strictEqual(matchesExcludePatterns('src/User.generated.php', matchers), true);
+        assert.strictEqual(matchesExcludePatterns('src/User.cache.php', matchers), true);
+        assert.strictEqual(matchesExcludePatterns('src/User.php', matchers), false);
     });
 });
