@@ -65,9 +65,10 @@ export class ReferenceUpdater {
                     edit.replace(uri, useRange, newFqcn);
                 }
 
-                if (shortNameChanged && !use.alias) {
-                    this.updateShortNameUsages(edit, references, oldFqcn, oldShort, newShort, uri);
-                }
+            }
+
+            if (shortNameChanged) {
+                this.updateShortNameUsages(edit, references, oldFqcn, oldShort, newShort, uri);
             }
 
             // Update inline fully-qualified references

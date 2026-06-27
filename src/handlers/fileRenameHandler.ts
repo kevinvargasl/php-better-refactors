@@ -7,18 +7,18 @@ import { isPhpFile, getBaseName } from '../utils/pathUtils';
 import { buildFqcn, getNamespacePart } from '../utils/phpStringUtils';
 import { mergeWorkspaceEdit, mergeEdits } from '../utils/workspaceEditUtils';
 import { formatError } from '../utils/errorUtils';
+import { FileOperationGuard } from '../services/fileOperationGuard';
 
 /**
  * Handles both file renames (same directory) and file moves (different directory)
  * via a single onWillRenameFiles listener.
  */
 export class FileRenameHandler {
-    private inProgress = new Set<string>();
-
     constructor(
         private updater: ReferenceUpdater,
         private resolver: Psr4Resolver | null,
-        private options: { rename: boolean; move: boolean }
+        private options: { rename: boolean; move: boolean },
+        private operationGuard: FileOperationGuard,
     ) {}
 
     register(): vscode.Disposable {
@@ -37,7 +37,7 @@ export class FileRenameHandler {
             if (!isPhpFile(oldUri.fsPath) || !isPhpFile(newUri.fsPath)) {
                 continue;
             }
-            if (this.inProgress.has(oldUri.fsPath) || this.inProgress.has(newUri.fsPath)) {
+            if (this.operationGuard.consumeRename(oldUri.fsPath, newUri.fsPath)) {
                 continue;
             }
 

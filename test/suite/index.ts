@@ -10,7 +10,7 @@ export function run(): Promise<void> {
         color: true,
     });
 
-    const testsRoot = path.resolve(__dirname, '..');
+    const testsRoot = __dirname;
 
     return new Promise((resolve, reject) => {
         const files = findTestFiles(testsRoot);

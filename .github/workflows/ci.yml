@@ -30,4 +30,26 @@ jobs:
         run: npx tsc -p ./
 
       - name: Unit tests
-        run: npx mocha 'out/test/unit/**/*.test.js'
+        run: npm run test:unit
+
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        vscode-version: ['1.85.0', 'stable']
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Extension tests
+        run: xvfb-run -a npm run test:integration
+        env:
+          VSCODE_TEST_VERSION: ${{ matrix.vscode-version }}

@@ -3,13 +3,14 @@ import * as path from 'path';
 import { getCachedParse } from '../utils/parseCache';
 import { ReferenceIndex } from '../services/referenceIndex';
 import { ReferenceUpdater } from '../services/referenceUpdater';
-import { isPhpFile } from '../utils/pathUtils';
+import { isPhpFile, normalizePath } from '../utils/pathUtils';
 import { buildFqcn, isValidClassName } from '../utils/phpStringUtils';
 import { findMemberReferences, hasPotentialMemberReferenceText } from '../utils/memberSearch';
-import { locToRange, mergeWorkspaceEdit } from '../utils/workspaceEditUtils';
+import { locToRange } from '../utils/workspaceEditUtils';
 import { MemberDeclaration, PhpFileInfo } from '../types';
 import { formatError } from '../utils/errorUtils';
 import { readTextFilePreferOpenDocument } from '../utils/documentUtils';
+import { FileOperationGuard } from '../services/fileOperationGuard';
 
 /**
  * Provides "Rename Symbol" (F2 / right-click → Rename) for PHP class names,
@@ -19,6 +20,7 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
     constructor(
         private index: ReferenceIndex,
         private updater: ReferenceUpdater,
+        private operationGuard: FileOperationGuard,
     ) {}
 
     prepareRename(
@@ -124,19 +126,36 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         const oldFqcn = buildFqcn(info.namespace, oldClassName);
         const newFqcn = buildFqcn(info.namespace, newName);
 
-        const edit = new vscode.WorkspaceEdit();
         const uri = document.uri;
-
-        edit.replace(uri, locToRange(info.classLoc), newName);
-
-        mergeWorkspaceEdit(edit, await this.updater.buildEditsForRename(oldFqcn, newFqcn));
-
         const dir = path.dirname(document.fileName);
         const newFilePath = path.join(dir, newName + '.php');
         const newUri = vscode.Uri.file(newFilePath);
+
+        const referenceEdits = await this.updater.buildEditsForRename(oldFqcn, newFqcn);
+        const edit = new vscode.WorkspaceEdit();
+        this.operationGuard.planRename(uri.fsPath, newUri.fsPath);
         edit.renameFile(uri, newUri);
+        edit.replace(newUri, locToRange(info.classLoc), newName);
+        this.mergeRenameReferenceEdits(edit, referenceEdits, uri, newUri);
 
         return edit;
+    }
+
+    private mergeRenameReferenceEdits(
+        target: vscode.WorkspaceEdit,
+        source: vscode.WorkspaceEdit,
+        oldUri: vscode.Uri,
+        newUri: vscode.Uri,
+    ): void {
+        const oldPath = normalizePath(oldUri.fsPath);
+        for (const [uri, textEdits] of source.entries()) {
+            const targetUri = normalizePath(uri.fsPath) === oldPath ? newUri : uri;
+            for (const textEdit of textEdits) {
+                if (textEdit instanceof vscode.TextEdit) {
+                    target.replace(targetUri, textEdit.range, textEdit.newText);
+                }
+            }
+        }
     }
 
     private async renameMember(

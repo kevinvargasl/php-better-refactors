@@ -10,6 +10,7 @@ import { ImportClassProvider } from './providers/importClassProvider';
 import { Psr4Mapping, ExtensionConfig } from './types';
 import { formatError } from './utils/errorUtils';
 import { readTextFilePreferOpenDocument } from './utils/documentUtils';
+import { FileOperationGuard } from './services/fileOperationGuard';
 
 const COMPOSER_RELOAD_DEBOUNCE_MS = 300;
 
@@ -38,12 +39,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(referenceIndex);
 
     const updater = new ReferenceUpdater(referenceIndex);
+    const operationGuard = new FileOperationGuard();
+    context.subscriptions.push(operationGuard);
 
     // Single handler for both renames and moves
     if (config.enableAutoRename || config.enableAutoNamespace) {
         const handler = new FileRenameHandler(updater,
             config.enableAutoNamespace ? resolver : null,
-            { rename: config.enableAutoRename, move: config.enableAutoNamespace });
+            { rename: config.enableAutoRename, move: config.enableAutoNamespace },
+            operationGuard);
         context.subscriptions.push(handler.register());
     }
 
@@ -51,7 +55,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.languages.registerRenameProvider(
             { language: 'php', scheme: 'file' },
-            new PhpClassRenameProvider(referenceIndex, updater)
+            new PhpClassRenameProvider(referenceIndex, updater, operationGuard)
         )
     );
 
