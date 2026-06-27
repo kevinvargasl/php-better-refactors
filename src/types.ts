@@ -9,12 +9,20 @@ export interface Psr4Mapping {
 export interface PhpFileInfo {
     namespace: string | null;
     namespaceLoc: PhpLocation | null;
+    preambleInsertPosition: PhpPosition | null;
     className: string | null;
     classType: 'class' | 'interface' | 'trait' | 'enum' | null;
     classLoc: PhpLocation | null;
     useStatements: UseStatement[];
     references: ClassReference[];
     members: MemberDeclaration[];
+}
+
+/** Position in a PHP source file */
+export interface PhpPosition {
+    line: number;   // 1-based
+    column: number; // 0-based
+    offset: number;
 }
 
 /** A method or property declaration in a class */

@@ -63,7 +63,8 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
                 );
 
                 const edit = new vscode.WorkspaceEdit();
-                edit.insert(document.uri, insertPosition, `use ${fqcn};\n`);
+                const prefix = info.useStatements.length === 0 && !info.namespaceLoc ? '\n' : '';
+                edit.insert(document.uri, insertPosition, `${prefix}use ${fqcn};\n`);
                 action.edit = edit;
 
                 if (candidates.length === 1) {
@@ -91,6 +92,13 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
 
         if (info.namespaceLoc) {
             return new vscode.Position(info.namespaceLoc.endLine, 0);
+        }
+
+        if (info.preambleInsertPosition) {
+            return new vscode.Position(
+                info.preambleInsertPosition.line - 1,
+                info.preambleInsertPosition.column
+            );
         }
 
         return new vscode.Position(1, 0);

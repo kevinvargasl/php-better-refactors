@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ReferenceIndex } from './referenceIndex';
 import { getShortName } from '../utils/phpStringUtils';
-import { UseStatement, ClassReference, IndexEntry, PhpLocation } from '../types';
+import { UseStatement, ClassReference, IndexEntry, PhpLocation, PhpPosition } from '../types';
 import { locToRange } from '../utils/workspaceEditUtils';
 import { formatError } from '../utils/errorUtils';
 import { findOpenFileDocument, readTextFilePreferOpenDocument } from '../utils/documentUtils';
@@ -223,6 +223,7 @@ export class ReferenceUpdater {
     buildNamespaceEditFromInfo(
         filePath: string,
         currentNamespaceLoc: PhpLocation | null,
+        preambleInsertPosition: PhpPosition | null,
         currentNamespace: string | null,
         newNamespace: string
     ): vscode.WorkspaceEdit {
@@ -232,7 +233,10 @@ export class ReferenceUpdater {
         if (currentNamespaceLoc && currentNamespace) {
             edit.replace(uri, locToRange(currentNamespaceLoc), `namespace ${newNamespace};`);
         } else if (!currentNamespace && newNamespace) {
-            edit.insert(uri, new vscode.Position(1, 0), `\nnamespace ${newNamespace};\n`);
+            const position = preambleInsertPosition
+                ? new vscode.Position(preambleInsertPosition.line - 1, preambleInsertPosition.column)
+                : new vscode.Position(1, 0);
+            edit.insert(uri, position, `\nnamespace ${newNamespace};\n`);
         }
 
         return edit;

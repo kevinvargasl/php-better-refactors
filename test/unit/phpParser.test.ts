@@ -322,6 +322,62 @@ class Helper {}
             assert.strictEqual(result.className, 'Helper');
         });
 
+        it('should place preamble insertion after strict_types declare', () => {
+            const content = `<?php
+declare(strict_types=1);
+class User {}
+`;
+            const result = parsePhpFile(content);
+            assert.ok(result.preambleInsertPosition);
+            assert.strictEqual(
+                content.slice(0, result.preambleInsertPosition.offset),
+                '<?php\ndeclare(strict_types=1);'
+            );
+        });
+
+        it('should place preamble insertion after multiple leading declares and comments', () => {
+            const content = `<?php
+declare(strict_types=1);
+// Keep declarations before namespace and imports.
+declare(ticks=1);
+
+// Class documentation.
+class User {}
+`;
+            const result = parsePhpFile(content);
+            assert.ok(result.preambleInsertPosition);
+            assert.strictEqual(
+                content.slice(0, result.preambleInsertPosition.offset),
+                `<?php
+declare(strict_types=1);
+// Keep declarations before namespace and imports.
+declare(ticks=1);`
+            );
+        });
+
+        it('should support a declare and declaration on the same line', () => {
+            const content = '<?php declare(strict_types=1); class User {}';
+            const result = parsePhpFile(content);
+            assert.ok(result.preambleInsertPosition);
+            assert.strictEqual(
+                content.slice(0, result.preambleInsertPosition.offset),
+                '<?php declare(strict_types=1);'
+            );
+        });
+
+        it('should place preamble insertion after the opening tag when no declare exists', () => {
+            const content = `<?php
+// File documentation.
+class User {}
+`;
+            const result = parsePhpFile(content);
+            assert.ok(result.preambleInsertPosition);
+            assert.strictEqual(
+                content.slice(0, result.preambleInsertPosition.offset),
+                '<?php'
+            );
+        });
+
         it('should skip built-in types', () => {
             const result = parsePhpFile(`<?php
 namespace App;

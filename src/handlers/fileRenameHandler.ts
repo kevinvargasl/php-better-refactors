@@ -115,7 +115,8 @@ export class FileRenameHandler {
             if (newResolution && newNamespace !== info.namespace) {
                 mergeWorkspaceEdit(combinedEdit,
                     this.updater.buildNamespaceEditFromInfo(
-                        oldUri.fsPath, info.namespaceLoc, info.namespace, newNamespace || ''));
+                        oldUri.fsPath, info.namespaceLoc, info.preambleInsertPosition,
+                        info.namespace, newNamespace || ''));
             } else if (!newResolution && info.namespace) {
                 vscode.window.showWarningMessage(
                     `PHP Better Refactors: File moved outside PSR-4 mapping. Namespace was not updated.`);

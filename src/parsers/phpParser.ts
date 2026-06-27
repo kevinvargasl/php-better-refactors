@@ -1,6 +1,7 @@
 import type {
     PhpFileInfo,
     PhpLocation,
+    PhpPosition,
     UseStatement,
     ClassReference,
     MemberDeclaration,
@@ -20,6 +21,7 @@ const engine = new Engine({
 interface Declarations {
     namespace: string | null;
     namespaceLoc: PhpLocation | null;
+    preambleInsertPosition: PhpPosition | null;
     className: string | null;
     classType: 'class' | 'interface' | 'trait' | 'enum' | null;
     classLoc: PhpLocation | null;
@@ -27,10 +29,11 @@ interface Declarations {
     members: MemberDeclaration[];
 }
 
-function extractDeclarations(ast: any): Declarations {
+function extractDeclarations(ast: any, content: string): Declarations {
     const result: Declarations = {
         namespace: null,
         namespaceLoc: null,
+        preambleInsertPosition: null,
         className: null,
         classType: null,
         classLoc: null,
@@ -40,6 +43,7 @@ function extractDeclarations(ast: any): Declarations {
 
     // Declarations only appear at the top level of the AST — no deep walk needed.
     const topLevel = ast.children || [];
+    result.preambleInsertPosition = extractPreambleInsertPosition(topLevel, content);
     for (const node of topLevel) {
         if (!node || typeof node !== 'object') { continue; }
         processDeclarationNode(node, result);
@@ -54,6 +58,41 @@ function extractDeclarations(ast: any): Declarations {
     }
 
     return result;
+}
+
+/**
+ * Find where namespace and use declarations can be inserted without preceding
+ * top-level declare statements such as declare(strict_types=1).
+ */
+function extractPreambleInsertPosition(topLevel: any[], content: string): PhpPosition | null {
+    let leadingDeclareCount = 0;
+    while (leadingDeclareCount < topLevel.length && topLevel[leadingDeclareCount]?.kind === 'declare') {
+        leadingDeclareCount++;
+    }
+
+    if (leadingDeclareCount > 0) {
+        const lastDeclare = topLevel[leadingDeclareCount - 1];
+        if (lastDeclare?.loc?.end) {
+            return {
+                line: lastDeclare.loc.end.line,
+                column: lastDeclare.loc.end.column,
+                offset: lastDeclare.loc.end.offset,
+            };
+        }
+    }
+
+    const openTag = /<\?php\b/i.exec(content);
+    if (!openTag) {
+        return null;
+    }
+
+    const offset = openTag.index + openTag[0].length;
+    const prefixLines = content.slice(0, offset).split(/\r\n|\r|\n/);
+    return {
+        line: prefixLines.length,
+        column: prefixLines[prefixLines.length - 1].length,
+        offset,
+    };
 }
 
 function processDeclarationNode(node: any, result: Declarations): void {
@@ -223,6 +262,7 @@ function extractUseStatements(node: any): UseStatement[] {
 const EMPTY_RESULT: PhpFileInfo = Object.freeze({
     namespace: null,
     namespaceLoc: null,
+    preambleInsertPosition: null,
     className: null,
     classType: null,
     classLoc: null,
@@ -239,7 +279,7 @@ export function parsePhpFile(content: string): PhpFileInfo {
         return EMPTY_RESULT;
     }
 
-    const decl = extractDeclarations(ast);
+    const decl = extractDeclarations(ast, content);
 
     const references: ClassReference[] = [];
     const useMap = buildUseMap(decl.useStatements);
