@@ -115,6 +115,23 @@ class User implements HasName {}
             assert.strictEqual(implRef.resolvedFqcn, 'App\\Contracts\\HasName');
         });
 
+        it('should detect trait use references', () => {
+            const result = parsePhpFile(`<?php
+namespace App\\Models;
+
+use App\\Traits\\HasFactory;
+
+class User
+{
+    use HasFactory;
+}
+`);
+            const traitRef = result.references.find(r => r.type === 'trait_use');
+            assert.ok(traitRef, 'Should find trait use reference');
+            assert.strictEqual(traitRef.resolvedFqcn, 'App\\Traits\\HasFactory');
+            assert.deepStrictEqual(result.traitFqcns, ['App\\Traits\\HasFactory']);
+        });
+
         it('should detect new expression reference', () => {
             const result = parsePhpFile(`<?php
 namespace App;

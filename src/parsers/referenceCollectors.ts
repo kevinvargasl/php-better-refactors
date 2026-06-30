@@ -76,7 +76,7 @@ function collectEnum(ctx: CollectorContext): boolean {
 
 function collectTraitUse(ctx: CollectorContext): boolean {
     if (ctx.node.traits) {
-        addRefsFromArray(ctx, ctx.node.traits, 'type_hint');
+        addRefsFromArray(ctx, ctx.node.traits, 'trait_use');
     }
     return false;
 }

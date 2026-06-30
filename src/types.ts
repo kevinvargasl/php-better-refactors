@@ -13,6 +13,9 @@ export interface PhpFileInfo {
     className: string | null;
     classType: 'class' | 'interface' | 'trait' | 'enum' | null;
     classLoc: PhpLocation | null;
+    extendsFqcn: string | null;
+    implementsFqcns: string[];
+    traitFqcns: string[];
     useStatements: UseStatement[];
     references: ClassReference[];
     members: MemberDeclaration[];
@@ -55,6 +58,7 @@ export type ReferenceType =
     | 'new'
     | 'extends'
     | 'implements'
+    | 'trait_use'
     | 'static_call'
     | 'type_hint'
     | 'catch'
@@ -88,6 +92,7 @@ export interface IndexEntry {
 export interface ExtensionConfig {
     enableAutoRename: boolean;
     enableAutoNamespace: boolean;
+    showOverrideCodeLens: boolean;
     excludePatterns: string[];
 }
 

@@ -11,6 +11,7 @@ PSR-4-aware PHP refactoring for VS Code. Automatically updates class names, name
 - **File rename → Class rename** — renaming `User.php` to `Account.php` renames class `User` to class `Account` and updates all references
 - **File move → Namespace update** — moving a file to a different folder updates the `namespace` declaration and cross-project reference updates
 - **Import class** quick fix — suggests adding `use` statements for unresolved class references
+- **Override CodeLens** — shows clickable markers such as `@override` above PHP methods that override a parent method, implement an interface contract, or match a trait method
 - Updates all `use` statements, type hints, `new`, `extends`, `implements`, `::class`, `catch`, `instanceof`, attributes, and more
 - Handles group use statements, aliased imports, and fully-qualified references
 - PSR-4 namespace resolution from `composer.json`
@@ -22,7 +23,7 @@ PSR-4-aware PHP refactoring for VS Code. Automatically updates class names, name
 
 Right-click a class name, method, or property and select **Rename Symbol**. The declaration, file, and all references across the project are updated.
 
-![Rename Symbol](assets/rename-symbol.gif)
+![Rename Symbol](https://raw.githubusercontent.com/kevinvargasl/php-better-refactors/main/assets/rename-symbol.gif)
 </details>
 
 <details>
@@ -30,7 +31,7 @@ Right-click a class name, method, or property and select **Rename Symbol**. The 
 
 Rename a `.php` file in the explorer — the class declaration and all references are updated automatically.
 
-![File Rename](assets/file-rename.gif)
+![File Rename](https://raw.githubusercontent.com/kevinvargasl/php-better-refactors/main/assets/file-rename.gif)
 </details>
 
 <details>
@@ -38,7 +39,7 @@ Rename a `.php` file in the explorer — the class declaration and all reference
 
 Move a file to a different folder — the namespace declaration and all references are updated.
 
-![File Move](assets/file-move.gif)
+![File Move](https://raw.githubusercontent.com/kevinvargasl/php-better-refactors/main/assets/file-move.gif)
 </details>
 
 <details>
@@ -46,7 +47,15 @@ Move a file to a different folder — the namespace declaration and all referenc
 
 Use a class without a `use` statement and get a quick fix to import it.
 
-![Import Class](assets/import-class.gif)
+![Import Class](https://raw.githubusercontent.com/kevinvargasl/php-better-refactors/main/assets/import-class.gif)
+</details>
+
+<details>
+<summary>Override CodeLens</summary>
+
+Methods that inherit behavior show a clickable CodeLens above the declaration. Click it to jump to the original parent, interface, or trait method. If multiple origins exist, the extension lets you pick one.
+
+![Override CodeLens](https://raw.githubusercontent.com/kevinvargasl/php-better-refactors/main/assets/override-codelens.gif)
 </details>
 
 ## Installation
@@ -70,7 +79,8 @@ All settings are under `phpBetterRefactors.*` in VS Code settings.
 |---|---|---|---|
 | `phpBetterRefactors.enableAutoRename` | `boolean` | `true` | Automatically rename class when file is renamed |
 | `phpBetterRefactors.enableAutoNamespace` | `boolean` | `true` | Automatically update namespace when file is moved |
-| `phpBetterRefactors.excludePatterns` | `string[]` | `["**/vendor/**", "**/node_modules/**"]` | Patterns for files/folders to exclude from reference scanning |
+| `phpBetterRefactors.showOverrideCodeLens` | `boolean` | `true` | Show clickable CodeLens above PHP methods that override a parent class, implement an interface, or match a trait method |
+| `phpBetterRefactors.excludePatterns` | `string[]` | `["**/vendor/**", "**/node_modules/**", "**/storage/**", "**/.phpunit.cache/**", "**/.phpstan/**", "**/.php-cs-fixer.cache/**"]` | Patterns for files/folders to exclude from reference scanning |
 
 ## Commands
 

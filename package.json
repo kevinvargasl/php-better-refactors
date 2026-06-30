@@ -2,7 +2,7 @@
   "name": "php-better-refactors",
   "displayName": "PHP Better Refactors",
   "description": "PSR-4-aware PHP refactoring: automatic class/file/namespace, properties and methods renaming and cross-project reference updates",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "kevinvargasl",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -40,6 +40,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically update namespace when file is moved"
+        },
+        "phpBetterRefactors.showOverrideCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show clickable CodeLens above PHP methods that override a parent class, implement an interface, or match a trait method"
         },
         "phpBetterRefactors.excludePatterns": {
           "type": "array",

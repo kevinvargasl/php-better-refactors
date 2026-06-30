@@ -25,6 +25,9 @@ interface Declarations {
     className: string | null;
     classType: 'class' | 'interface' | 'trait' | 'enum' | null;
     classLoc: PhpLocation | null;
+    extendsFqcn: string | null;
+    implementsFqcns: string[];
+    traitFqcns: string[];
     useStatements: UseStatement[];
     members: MemberDeclaration[];
 }
@@ -37,6 +40,9 @@ function extractDeclarations(ast: any, content: string): Declarations {
         className: null,
         classType: null,
         classLoc: null,
+        extendsFqcn: null,
+        implementsFqcns: [],
+        traitFqcns: [],
         useStatements: [],
         members: [],
     };
@@ -266,6 +272,9 @@ const EMPTY_RESULT: PhpFileInfo = Object.freeze({
     className: null,
     classType: null,
     classLoc: null,
+    extendsFqcn: null,
+    implementsFqcns: Object.freeze([]) as readonly never[] as never[],
+    traitFqcns: Object.freeze([]) as readonly never[] as never[],
     useStatements: Object.freeze([]) as readonly never[] as never[],
     references: Object.freeze([]) as readonly never[] as never[],
     members: Object.freeze([]) as readonly never[] as never[],
@@ -284,6 +293,14 @@ export function parsePhpFile(content: string): PhpFileInfo {
     const references: ClassReference[] = [];
     const useMap = buildUseMap(decl.useStatements);
     collectReferences(ast, useMap, decl.namespace, references);
+
+    decl.extendsFqcn = references.find(ref => ref.type === 'extends')?.resolvedFqcn ?? null;
+    decl.implementsFqcns = references
+        .filter(ref => ref.type === 'implements')
+        .map(ref => ref.resolvedFqcn);
+    decl.traitFqcns = references
+        .filter(ref => ref.type === 'trait_use')
+        .map(ref => ref.resolvedFqcn);
 
     return { ...decl, references };
 }
