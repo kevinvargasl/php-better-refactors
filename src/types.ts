@@ -31,7 +31,7 @@ export interface PhpPosition {
 /** A method or property declaration in a class */
 export interface MemberDeclaration {
     name: string;
-    kind: 'method' | 'property';
+    kind: 'method' | 'property' | 'constant';
     isStatic: boolean;
     loc: PhpLocation;
 }
@@ -44,6 +44,8 @@ export interface UseStatement {
     loc: PhpLocation;
     /** For group use: the group prefix and item range within the group */
     groupPrefix?: string;
+    /** Full group-use statement range, including the `use` keyword and semicolon. */
+    groupLoc?: PhpLocation;
 }
 
 /** A reference to a class in PHP code */
@@ -84,6 +86,7 @@ export interface IndexEntry {
     filePath: string;
     namespace: string | null;
     declaredFqcn: string | null;
+    extendsFqcn: string | null;
     useStatements: UseStatement[];
     references: ClassReference[];
 }

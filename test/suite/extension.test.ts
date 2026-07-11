@@ -166,6 +166,7 @@ class UsesHiddenGenerated
 }
 `);
         const document = await vscode.workspace.openTextDocument(consumerUri);
+        await delay(400);
         const classOffset = document.getText().indexOf('HiddenGenerated();');
         const start = document.positionAt(classOffset);
         const range = new vscode.Range(start, start.translate(0, 'HiddenGenerated'.length));
@@ -180,6 +181,274 @@ class UsesHiddenGenerated
             !actions?.some(action => action.title.includes('HiddenGenerated')),
             'Excluded declarations must not be offered as imports'
         );
+    });
+
+    it('discovers vendor classes lazily for import actions', async () => {
+        await writeWorkspaceFile('vendor/acme/package/src/LazyVendorThing.php', `<?php
+
+namespace Acme\\Package;
+
+class LazyVendorThing
+{
+}
+`);
+        const consumerUri = await writeWorkspaceFile('scratch/UsesLazyVendorThing.php', `<?php
+
+class UsesLazyVendorThing
+{
+    public function create(): void
+    {
+        new LazyVendorThing();
+    }
+}
+`);
+        const document = await vscode.workspace.openTextDocument(consumerUri);
+        await delay(400);
+        const classOffset = document.getText().indexOf('LazyVendorThing();');
+        const start = document.positionAt(classOffset);
+        const range = new vscode.Range(start, start.translate(0, 'LazyVendorThing'.length));
+
+        const actions = await vscode.commands.executeCommand<Array<vscode.CodeAction | vscode.Command>>(
+            'vscode.executeCodeActionProvider',
+            consumerUri,
+            range,
+            vscode.CodeActionKind.QuickFix.value
+        );
+
+        assert.ok(
+            actions?.some(action => action.title === 'Import Acme\\Package\\LazyVendorThing'),
+            'Expected an import action for the lazily discovered vendor class'
+        );
+    });
+
+    it('rewrites a single-item multiline group import safely when moving a class', async () => {
+        const oldUri = await writeWorkspaceFile('src/Models/GroupedTarget.php', [
+            '<?php',
+            '',
+            'namespace App\\Models;',
+            '',
+            'class GroupedTarget {}',
+            '',
+        ].join('\n'));
+        const consumerUri = await writeWorkspaceFile('src/UsesGroupedTarget.php', [
+            '<?php',
+            '',
+            'namespace App;',
+            '',
+            'use App\\Models\\{',
+            '    GroupedTarget as TargetAlias',
+            '};',
+            '',
+            'new TargetAlias();',
+            '',
+        ].join('\n'));
+        await vscode.commands.executeCommand('phpBetterRefactors.reindex');
+
+        const newUri = vscode.Uri.joinPath(workspaceRoot, 'src', 'Services', 'GroupedTarget.php');
+        const edit = new vscode.WorkspaceEdit();
+        edit.renameFile(oldUri, newUri);
+        assert.strictEqual(await vscode.workspace.applyEdit(edit), true);
+
+        const movedClass = await readDocument(newUri);
+        const consumer = await readDocument(consumerUri);
+        assert.match(movedClass, /namespace App\\Services;/);
+        assert.match(consumer, /use App\\Services\\GroupedTarget as TargetAlias;/);
+        assert.doesNotMatch(consumer, /use App\\Models\\\{/);
+    });
+
+    it('does not infer a class from the filename when moving a PHP script', async () => {
+        const oldUri = await writeWorkspaceFile('legacy/Utility.php', [
+            '<?php',
+            '',
+            'namespace Legacy;',
+            '',
+            'function utility(): void {}',
+            '',
+        ].join('\n'));
+        const consumerUri = await writeWorkspaceFile('src/UsesLegacyUtility.php', [
+            '<?php',
+            '',
+            'namespace App;',
+            '',
+            'use Legacy\\Utility;',
+            '',
+            'new Utility();',
+            '',
+        ].join('\n'));
+        await vscode.commands.executeCommand('phpBetterRefactors.reindex');
+
+        const newUri = vscode.Uri.joinPath(workspaceRoot, 'src', 'Utility.php');
+        const edit = new vscode.WorkspaceEdit();
+        edit.renameFile(oldUri, newUri);
+        assert.strictEqual(await vscode.workspace.applyEdit(edit), true);
+
+        const movedScript = await readDocument(newUri);
+        const consumer = await readDocument(consumerUri);
+        assert.match(movedScript, /namespace Legacy;/);
+        assert.doesNotMatch(movedScript, /namespace App;/);
+        assert.match(consumer, /use Legacy\\Utility;/);
+    });
+
+    it('renames only provably typed member references without opening referenced files', async () => {
+        const declarationUri = await writeWorkspaceFile('src/MemberOwner.php', `<?php
+
+namespace App;
+
+class MemberOwner
+{
+    public function save(): void
+    {
+    }
+}
+`);
+        const consumerUri = await writeWorkspaceFile('src/UsesMemberOwner.php', `<?php
+
+namespace App;
+
+use App\\MemberOwner;
+
+class UsesMemberOwner
+{
+    public function run(MemberOwner $owner): void
+    {
+        $owner->save();
+        $other->save();
+        MemberOwner::save();
+        $fresh = new MemberOwner();
+        $fresh->save();
+        // $other->save();
+        $message = '$other->save()';
+    }
+}
+`);
+        await vscode.commands.executeCommand('phpBetterRefactors.reindex');
+        assert.ok(
+            !vscode.workspace.textDocuments.some(document => document.uri.toString() === consumerUri.toString()),
+            'The consumer should begin closed'
+        );
+
+        const declaration = await vscode.workspace.openTextDocument(declarationUri);
+        const methodOffset = declaration.getText().indexOf('save()');
+        const renameEdit = await vscode.commands.executeCommand<vscode.WorkspaceEdit>(
+            'vscode.executeDocumentRenameProvider',
+            declarationUri,
+            declaration.positionAt(methodOffset),
+            'persist'
+        );
+
+        assert.ok(renameEdit, 'Expected a member rename edit');
+        assert.ok(
+            !vscode.workspace.textDocuments.some(document => document.uri.toString() === consumerUri.toString()),
+            'Preparing the rename should not open the consumer document'
+        );
+        assert.strictEqual(await vscode.workspace.applyEdit(renameEdit), true);
+
+        const updatedConsumer = await readDocument(consumerUri);
+        assert.match(updatedConsumer, /\$owner->persist\(\)/);
+        assert.match(updatedConsumer, /MemberOwner::persist\(\)/);
+        assert.match(updatedConsumer, /\$fresh->persist\(\)/);
+        assert.match(updatedConsumer, /\$other->save\(\)/);
+        assert.match(updatedConsumer, /\/\/ \$other->save\(\)/);
+        assert.match(updatedConsumer, /\$message = '\$other->save\(\)'/);
+    });
+
+    it('preserves the dollar sign when renaming typed static property references', async () => {
+        const declarationUri = await writeWorkspaceFile('src/PropertyOwner.php', [
+            '<?php',
+            '',
+            'namespace App;',
+            '',
+            'class PropertyOwner',
+            '{',
+            '    public static string $status;',
+            '    public string $instanceStatus;',
+            '}',
+            '',
+        ].join('\n'));
+        const consumerUri = await writeWorkspaceFile('src/UsesPropertyOwner.php', [
+            '<?php',
+            '',
+            'namespace App;',
+            '',
+            'use App\\PropertyOwner;',
+            '',
+            'function inspect(PropertyOwner $owner): void',
+            '{',
+            '    echo PropertyOwner::$status;',
+            '    echo $owner->status;',
+            '    echo $other->status;',
+            '}',
+            '',
+        ].join('\n'));
+        await vscode.commands.executeCommand('phpBetterRefactors.reindex');
+
+        const declaration = await vscode.workspace.openTextDocument(declarationUri);
+        const propertyOffset = declaration.getText().indexOf('$status') + 1;
+        const renameEdit = await vscode.commands.executeCommand<vscode.WorkspaceEdit>(
+            'vscode.executeDocumentRenameProvider',
+            declarationUri,
+            declaration.positionAt(propertyOffset),
+            'state'
+        );
+        assert.ok(renameEdit, 'Expected a property rename edit');
+        assert.strictEqual(await vscode.workspace.applyEdit(renameEdit), true);
+
+        const updatedConsumer = await readDocument(consumerUri);
+        assert.match(updatedConsumer, /PropertyOwner::\$state/);
+        assert.match(updatedConsumer, /\$other->status/);
+    });
+
+    it('renames typed class constants and only their resolved references', async () => {
+        const declarationUri = await writeWorkspaceFile('src/ChangesView.php', [
+            '<?php',
+            '',
+            'namespace App;',
+            '',
+            'final class ChangesView',
+            '{',
+            '    public const array CURRENCY_FIELDS = [];',
+            '',
+            '    public function contains(string $field): bool',
+            '    {',
+            '        return in_array($field, self::CURRENCY_FIELDS, true);',
+            '    }',
+            '}',
+            '',
+        ].join('\n'));
+        const consumerUri = await writeWorkspaceFile('src/UsesChangesViewConstant.php', [
+            '<?php',
+            '',
+            'namespace App;',
+            '',
+            'use App\\ChangesView;',
+            '',
+            '$fields = ChangesView::CURRENCY_FIELDS;',
+            '$unrelated = Other::CURRENCY_FIELDS;',
+            '$text = "ChangesView::CURRENCY_FIELDS";',
+            '// ChangesView::CURRENCY_FIELDS',
+            '',
+        ].join('\n'));
+        await vscode.commands.executeCommand('phpBetterRefactors.reindex');
+
+        const declaration = await vscode.workspace.openTextDocument(declarationUri);
+        const constantOffset = declaration.getText().indexOf('CURRENCY_FIELDS');
+        const renameEdit = await vscode.commands.executeCommand<vscode.WorkspaceEdit>(
+            'vscode.executeDocumentRenameProvider',
+            declarationUri,
+            declaration.positionAt(constantOffset),
+            'MONEY_FIELDS'
+        );
+        assert.ok(renameEdit, 'Expected a class constant rename edit');
+        assert.strictEqual(await vscode.workspace.applyEdit(renameEdit), true);
+
+        const updatedDeclaration = await readDocument(declarationUri);
+        const updatedConsumer = await readDocument(consumerUri);
+        assert.match(updatedDeclaration, /const array MONEY_FIELDS/);
+        assert.match(updatedDeclaration, /self::MONEY_FIELDS/);
+        assert.match(updatedConsumer, /ChangesView::MONEY_FIELDS/);
+        assert.match(updatedConsumer, /Other::CURRENCY_FIELDS/);
+        assert.match(updatedConsumer, /\"ChangesView::CURRENCY_FIELDS\"/);
+        assert.match(updatedConsumer, /\/\/ ChangesView::CURRENCY_FIELDS/);
     });
 
     async function writeWorkspaceFile(relativePath: string, content: string): Promise<vscode.Uri> {

@@ -49,18 +49,19 @@ export class ReferenceUpdater {
 
                 const useRange = locToRange(use.loc);
 
-                if (use.alias) {
-                    edit.replace(uri, useRange, this.buildUseStatementText(newFqcn, use.alias, use.groupPrefix));
-                } else if (use.groupPrefix) {
+                if (use.groupPrefix) {
                     const groupPrefixWithSep = use.groupPrefix.endsWith('\\')
                         ? use.groupPrefix
                         : use.groupPrefix + '\\';
                     if (newFqcn.startsWith(groupPrefixWithSep)) {
-                        const newItemName = newFqcn.substring(groupPrefixWithSep.length);
-                        edit.replace(uri, useRange, newItemName);
+                        edit.replace(uri, useRange,
+                            this.buildUseStatementText(newFqcn, use.alias, use.groupPrefix));
                     } else {
-                        await this.removeGroupItemAndAddUse(edit, uri, use, useStatements, newFqcn, document, lineCache);
+                        await this.removeGroupItemAndAddUse(
+                            edit, uri, use, useStatements, newFqcn, document, lineCache, use.alias);
                     }
+                } else if (use.alias) {
+                    edit.replace(uri, useRange, this.buildUseStatementText(newFqcn, use.alias));
                 } else {
                     edit.replace(uri, useRange, newFqcn);
                 }
@@ -151,6 +152,7 @@ export class ReferenceUpdater {
         newFqcn: string,
         document: vscode.TextDocument | null,
         lineCache: Map<string, string[]>,
+        alias: string | null,
     ): Promise<void> {
         const line = use.loc.startLine - 1;
         const lineText = await this.getLineText(uri.fsPath, line, document, lineCache);
@@ -161,9 +163,10 @@ export class ReferenceUpdater {
             if (stmt.groupPrefix === use.groupPrefix && ++groupCount > 1) { break; }
         }
 
+        const standaloneUse = `use ${newFqcn}${alias ? ` as ${alias}` : ''};`;
         if (groupCount <= 1) {
-            const lineRange = new vscode.Range(line, 0, line + 1, 0);
-            edit.replace(uri, lineRange, `use ${newFqcn};\n`);
+            const groupRange = use.groupLoc ? locToRange(use.groupLoc) : locToRange(use.loc);
+            edit.replace(uri, groupRange, standaloneUse);
             return;
         }
 
@@ -187,7 +190,8 @@ export class ReferenceUpdater {
 
         const removeRange = new vscode.Range(line, removeStart, line, removeEnd);
         edit.replace(uri, removeRange, '');
-        edit.insert(uri, new vscode.Position(line + 1, 0), `use ${newFqcn};\n`);
+        const insertLine = use.groupLoc?.endLine ?? line + 1;
+        edit.insert(uri, new vscode.Position(insertLine, 0), `${standaloneUse}\n`);
     }
 
     private async getLineText(

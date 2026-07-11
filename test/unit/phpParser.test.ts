@@ -87,6 +87,31 @@ class Foo {}
             assert.strictEqual(result.useStatements.length, 2);
             assert.strictEqual(result.useStatements[0].fqcn, 'App\\Models\\User');
             assert.strictEqual(result.useStatements[1].fqcn, 'App\\Models\\Post');
+            assert.ok(result.useStatements[0].groupLoc);
+        });
+
+        it('should ignore function and const imports when resolving classes', () => {
+            const result = parsePhpFile([
+                '<?php',
+                'namespace App;',
+                'use function Vendor\\helper;',
+                'use const Vendor\\VALUE;',
+                'use Vendor\\Mixed\\{ClassName, function groupedHelper, const GROUPED_VALUE};',
+                'new helper();',
+                'new ClassName();',
+            ].join('\n'));
+            assert.deepStrictEqual(
+                result.useStatements.map(use => use.fqcn),
+                ['Vendor\\Mixed\\ClassName']
+            );
+            assert.strictEqual(
+                result.references.find(ref => ref.name === 'helper')?.resolvedFqcn,
+                'App\\helper'
+            );
+            assert.strictEqual(
+                result.references.find(ref => ref.name === 'ClassName')?.resolvedFqcn,
+                'Vendor\\Mixed\\ClassName'
+            );
         });
 
         it('should detect extends reference', () => {
@@ -248,6 +273,35 @@ class Column {
             assert.strictEqual(props[3].name, 'visible');
             // Promoted properties are never static
             assert.strictEqual(props[1].isStatic, false);
+        });
+
+        it('should extract typed class constants and enum cases as members', () => {
+            const classResult = parsePhpFile([
+                '<?php',
+                'class ChangesView {',
+                '    private const array CURRENCY_FIELDS = [];',
+                '    public const STATUS = 1, OTHER_STATUS = 2;',
+                '}',
+            ].join('\n'));
+            assert.deepStrictEqual(
+                classResult.members
+                    .filter(member => member.kind === 'constant')
+                    .map(member => member.name),
+                ['CURRENCY_FIELDS', 'STATUS', 'OTHER_STATUS']
+            );
+
+            const enumResult = parsePhpFile([
+                '<?php',
+                'enum Status {',
+                '    case Active;',
+                '}',
+            ].join('\n'));
+            assert.deepStrictEqual(
+                enumResult.members
+                    .filter(member => member.kind === 'constant')
+                    .map(member => member.name),
+                ['Active']
+            );
         });
 
         it('should detect static call references', () => {

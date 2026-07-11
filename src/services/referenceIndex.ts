@@ -7,6 +7,8 @@ import { buildFqcn, getShortName } from '../utils/phpStringUtils';
 import { formatError } from '../utils/errorUtils';
 import { readTextFilePreferOpenDocument } from '../utils/documentUtils';
 
+const MAX_INDEXED_PHP_FILE_BYTES = 4 * 1024 * 1024;
+
 /**
  * Workspace-wide index of all PHP class declarations and references.
  * Built on activation, updated incrementally via file watchers.
@@ -21,7 +23,8 @@ export class ReferenceIndex {
     private disposables: vscode.Disposable[] = [];
     private excludePatterns: string[];
     private changeTimers: Map<string, NodeJS.Timeout> = new Map();
-    private onDidUpdateEmitter = new vscode.EventEmitter<void>();
+    private vendorLookupPromises: Map<string, Promise<void>> = new Map();
+    private onDidUpdateEmitter = new vscode.EventEmitter<string | undefined>();
     public readonly onDidUpdate = this.onDidUpdateEmitter.event;
 
     constructor(excludePatterns: string[] = ['**/vendor/**', '**/node_modules/**', '**/storage/**', '**/.phpunit.cache/**', '**/.phpstan/**', '**/.php-cs-fixer.cache/**']) {
@@ -33,19 +36,18 @@ export class ReferenceIndex {
         this.fqcnToFile.clear();
         this.fqcnToReferencingFiles.clear();
         this.shortNameToFqcns.clear();
+        this.vendorLookupPromises.clear();
 
         const excludePattern = `{${this.excludePatterns.join(',')}}`;
         const files = await vscode.workspace.findFiles('**/*.php', excludePattern);
 
-        const batchSize = 50;
+        const batchSize = 20;
         for (let i = 0; i < files.length; i += batchSize) {
             const batch = files.slice(i, i + batchSize);
             await Promise.all(batch.map(uri => this.indexFileDirect(uri)));
         }
 
-        await this.indexVendorDeclarations();
-
-        this.onDidUpdateEmitter.fire();
+        this.onDidUpdateEmitter.fire(undefined);
     }
 
     private async indexFileDirect(uri: vscode.Uri): Promise<void> {
@@ -54,6 +56,11 @@ export class ReferenceIndex {
         }
         const normalizedPath = normalizePath(uri.fsPath);
         try {
+            const stat = await vscode.workspace.fs.stat(uri);
+            if (stat.size > MAX_INDEXED_PHP_FILE_BYTES) {
+                this.removeFile(normalizedPath);
+                return;
+            }
             const raw = await vscode.workspace.fs.readFile(uri);
             const content = Buffer.from(raw).toString('utf8');
             this.indexFileContent(normalizedPath, content);
@@ -92,6 +99,7 @@ export class ReferenceIndex {
             filePath,
             namespace: info.namespace,
             declaredFqcn,
+            extendsFqcn: info.extendsFqcn,
             useStatements: info.useStatements,
             references: info.references,
         };
@@ -148,6 +156,26 @@ export class ReferenceIndex {
         return this.shortNameToFqcns.get(shortName) ?? [];
     }
 
+    /**
+     * Discover vendor declarations lazily by their conventional PSR-4 filename.
+     * This keeps activation fast while still supporting imports and inheritance
+     * lookups for vendor classes when they are actually needed.
+     */
+    async discoverVendorFqcnsByShortName(shortName: string): Promise<string[]> {
+        await this.indexVendorFilesByShortName(shortName);
+        return this.findFqcnsByShortName(shortName);
+    }
+
+    async discoverVendorFileForFqcn(fqcn: string): Promise<string | undefined> {
+        const existing = this.getFileForFqcn(fqcn);
+        if (existing) {
+            return existing;
+        }
+
+        await this.indexVendorFilesByShortName(getShortName(fqcn));
+        return this.getFileForFqcn(fqcn);
+    }
+
     private registerFqcn(fqcn: string, filePath: string): void {
         this.fqcnToFile.set(fqcn, filePath);
         const short = getShortName(fqcn);
@@ -179,31 +207,45 @@ export class ReferenceIndex {
         }
     }
 
-    /**
-     * Scan vendor PHP files for class declarations using fast regex extraction.
-     */
-    private async indexVendorDeclarations(): Promise<void> {
+    private async indexVendorFilesByShortName(shortName: string): Promise<void> {
+        let pending = this.vendorLookupPromises.get(shortName);
+        if (!pending) {
+            pending = this.performVendorLookup(shortName);
+            this.vendorLookupPromises.set(shortName, pending);
+        }
+        try {
+            await pending;
+        } catch (error) {
+            this.vendorLookupPromises.delete(shortName);
+            console.warn('PHP Better Refactors: Failed to discover vendor class:', shortName, formatError(error));
+        }
+    }
+
+    private async performVendorLookup(shortName: string): Promise<void> {
         const vendorFiles = await vscode.workspace.findFiles(
-            '**/vendor/**/*.php',
+            `**/vendor/**/${shortName}.php`,
             '**/vendor/composer/**'
         );
-        if (vendorFiles.length === 0) {
-            return;
-        }
 
-        const batchSize = 100;
+        const batchSize = 25;
         for (let i = 0; i < vendorFiles.length; i += batchSize) {
             const batch = vendorFiles.slice(i, i + batchSize);
-            await Promise.all(batch.map(async (uri) => {
+            await Promise.all(batch.map(async uri => {
                 try {
+                    const stat = await vscode.workspace.fs.stat(uri);
+                    if (stat.size > MAX_INDEXED_PHP_FILE_BYTES) {
+                        return;
+                    }
                     const raw = await vscode.workspace.fs.readFile(uri);
                     const content = Buffer.from(raw).toString('utf8');
                     const decl = extractClassDeclarationFast(content);
-                    if (decl.className) {
-                        const fqcn = buildFqcn(decl.namespace, decl.className);
-                        if (!this.fqcnToFile.has(fqcn)) {
-                            this.registerFqcn(fqcn, normalizePath(uri.fsPath));
-                        }
+                    if (!decl.className) {
+                        return;
+                    }
+
+                    const fqcn = buildFqcn(decl.namespace, decl.className);
+                    if (!this.fqcnToFile.has(fqcn)) {
+                        this.registerFqcn(fqcn, normalizePath(uri.fsPath));
                     }
                 } catch { /* skip unreadable files */ }
             }));
@@ -221,7 +263,7 @@ export class ReferenceIndex {
 
         watcher.onDidCreate(uri => {
             if (!shouldExclude(uri)) {
-                this.indexFile(uri.fsPath).then(() => this.onDidUpdateEmitter.fire());
+                this.indexFile(uri.fsPath).then(() => this.onDidUpdateEmitter.fire(normalizePath(uri.fsPath)));
             }
         });
         watcher.onDidChange(uri => {
@@ -231,7 +273,7 @@ export class ReferenceIndex {
             if (existing) { clearTimeout(existing); }
             this.changeTimers.set(key, setTimeout(() => {
                 this.changeTimers.delete(key);
-                this.indexFile(uri.fsPath).then(() => this.onDidUpdateEmitter.fire());
+                this.indexFile(uri.fsPath).then(() => this.onDidUpdateEmitter.fire(key));
             }, 300));
         });
         watcher.onDidDelete(uri => {
@@ -243,7 +285,7 @@ export class ReferenceIndex {
                     this.changeTimers.delete(delKey);
                 }
                 this.removeFile(uri.fsPath);
-                this.onDidUpdateEmitter.fire();
+                this.onDidUpdateEmitter.fire(delKey);
             }
         });
 
@@ -253,6 +295,7 @@ export class ReferenceIndex {
     dispose(): void {
         this.changeTimers.forEach(t => clearTimeout(t));
         this.changeTimers.clear();
+        this.vendorLookupPromises.clear();
         this.disposables.forEach(d => d.dispose());
         this.onDidUpdateEmitter.dispose();
     }

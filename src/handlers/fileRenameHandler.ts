@@ -95,13 +95,17 @@ export class FileRenameHandler {
         try {
             const document = await vscode.workspace.openTextDocument(oldUri);
             const info = parsePhpFile(document.getText());
+            if (!info.className) {
+                return combinedEdit;
+            }
 
             const oldName = getBaseName(oldUri.fsPath);
             const newName = getBaseName(newUri.fsPath);
             const nameChanged = oldName !== newName;
 
-            const className = info.className || oldName;
-            const newClassName = nameChanged ? newName : className;
+            const className = info.className;
+            const shouldRenameClass = nameChanged && info.className === oldName && info.classLoc !== null;
+            const newClassName = shouldRenameClass ? newName : className;
             const oldFqcn = buildFqcn(info.namespace, className);
 
             // Resolve new namespace from PSR-4
@@ -123,7 +127,7 @@ export class FileRenameHandler {
             }
 
             // If also renamed, update class declaration
-            if (nameChanged && info.className && info.classLoc && info.className === oldName) {
+            if (shouldRenameClass && info.classLoc) {
                 mergeWorkspaceEdit(combinedEdit,
                     this.updater.buildClassRenameEdit(oldUri.fsPath, info.classLoc, oldName, newName));
             }

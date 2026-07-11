@@ -5,7 +5,7 @@ import { ReferenceIndex } from '../services/referenceIndex';
 import { ReferenceUpdater } from '../services/referenceUpdater';
 import { isPhpFile, normalizePath } from '../utils/pathUtils';
 import { buildFqcn, isValidClassName } from '../utils/phpStringUtils';
-import { findMemberReferences, hasPotentialMemberReferenceText } from '../utils/memberSearch';
+import { findMemberReferences, findMemberReferencesInText, hasPotentialMemberReferenceText } from '../utils/memberSearch';
 import { locToRange } from '../utils/workspaceEditUtils';
 import { MemberDeclaration, PhpFileInfo } from '../types';
 import { formatError } from '../utils/errorUtils';
@@ -173,20 +173,26 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
         }
 
         const edit = new vscode.WorkspaceEdit();
-        const isProperty = member.kind === 'property';
+        const fqcn = info.className ? buildFqcn(info.namespace, info.className) : null;
 
         // 1. Rename the declaration
         edit.replace(document.uri, this.memberNameRange(member), newName);
 
         // 2. Update references in the declaring file
-        const localRefs = findMemberReferences(document, oldName, isProperty);
-        for (const range of localRefs) {
-            edit.replace(document.uri, range, newName);
+        if (fqcn) {
+            const localRefs = findMemberReferences(document, oldName, member.kind, fqcn, {
+                namespace: info.namespace,
+                useStatements: info.useStatements,
+                declaredFqcn: fqcn,
+                parentFqcn: info.extendsFqcn,
+            });
+            for (const range of localRefs) {
+                edit.replace(document.uri, range, newName);
+            }
         }
 
         // 3. Update references in other files that import this class (parallel)
-        if (info.className) {
-            const fqcn = buildFqcn(info.namespace, info.className);
+        if (fqcn) {
             const referencingFiles = this.index.findReferencingFiles(fqcn);
 
             const batchSize = 50;
@@ -195,13 +201,17 @@ export class PhpClassRenameProvider implements vscode.RenameProvider {
                 await Promise.all(batch.map(async (entry) => {
                     try {
                         const text = await readTextFilePreferOpenDocument(entry.filePath);
-                        if (!hasPotentialMemberReferenceText(text, oldName, isProperty)) {
+                        if (!hasPotentialMemberReferenceText(text, oldName, member.kind)) {
                             return;
                         }
 
                         const uri = vscode.Uri.file(entry.filePath);
-                        const doc = await vscode.workspace.openTextDocument(uri);
-                        const refs = findMemberReferences(doc, oldName, isProperty);
+                        const refs = findMemberReferencesInText(text, oldName, member.kind, fqcn, {
+                            namespace: entry.namespace,
+                            useStatements: entry.useStatements,
+                            declaredFqcn: entry.declaredFqcn,
+                            parentFqcn: entry.extendsFqcn,
+                        });
                         for (const range of refs) {
                             edit.replace(uri, range, newName);
                         }

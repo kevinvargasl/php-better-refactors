@@ -14,10 +14,10 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
 
     constructor(private index: ReferenceIndex) {}
 
-    provideCodeActions(
+    async provideCodeActions(
         document: vscode.TextDocument,
         range: vscode.Range | vscode.Selection,
-    ): vscode.CodeAction[] | undefined {
+    ): Promise<vscode.CodeAction[] | undefined> {
         if (!isPhpFile(document.fileName)) {
             return;
         }
@@ -47,7 +47,10 @@ export class ImportClassProvider implements vscode.CodeActionProvider {
                 continue;
             }
 
-            const candidates = this.index.findFqcnsByShortName(ref.name);
+            let candidates = this.index.findFqcnsByShortName(ref.name);
+            if (candidates.length === 0) {
+                candidates = await this.index.discoverVendorFqcnsByShortName(ref.name);
+            }
             if (candidates.length === 0) {
                 continue;
             }

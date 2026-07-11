@@ -36,7 +36,13 @@ export class OverrideInfoRepository implements vscode.Disposable {
                     this.invalidateFile(document.uri.fsPath);
                 }
             }),
-            this.referenceIndex.onDidUpdate(() => this.cache.clear()),
+            this.referenceIndex.onDidUpdate(filePath => {
+                if (filePath) {
+                    this.invalidateFile(filePath);
+                } else {
+                    this.cache.clear();
+                }
+            }),
         ];
     }
 
@@ -48,7 +54,8 @@ export class OverrideInfoRepository implements vscode.Disposable {
     }
 
     async loadForFqcn(fqcn: string): Promise<LoadedPhpInfo | null> {
-        const filePath = this.referenceIndex.getFileForFqcn(fqcn);
+        const filePath = this.referenceIndex.getFileForFqcn(fqcn)
+            ?? await this.referenceIndex.discoverVendorFileForFqcn(fqcn);
         if (!filePath) {
             return null;
         }

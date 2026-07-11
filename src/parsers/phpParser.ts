@@ -11,6 +11,7 @@ import { nodeToLocation, forEachChild, buildUseMap } from './parserUtils';
 import { collectors } from './referenceCollectors';
 
 const Engine = require('php-parser');
+const MAX_PARSEABLE_PHP_CHARACTERS = 4 * 1024 * 1024;
 
 const engine = new Engine({
     parser: { extractDoc: false, php7: true, suppressErrors: true },
@@ -209,6 +210,20 @@ function extractMembers(body: any[], members: MemberDeclaration[]): void {
                     members.push({name, kind: 'property', isStatic: !!member.isStatic, loc: nodeToLocation(nameNode)});
                 }
             }
+        } else if (member.kind === 'classconstant') {
+            for (const constant of member.constants || []) {
+                const nameNode = constant.name;
+                const name = typeof nameNode === 'string' ? nameNode : nameNode?.name;
+                if (name && nameNode?.loc) {
+                    members.push({name, kind: 'constant', isStatic: true, loc: nodeToLocation(nameNode)});
+                }
+            }
+        } else if (member.kind === 'enumcase') {
+            const nameNode = member.name;
+            const name = typeof nameNode === 'string' ? nameNode : nameNode?.name;
+            if (name && nameNode?.loc) {
+                members.push({name, kind: 'constant', isStatic: true, loc: nodeToLocation(nameNode)});
+            }
         }
     }
 }
@@ -232,10 +247,13 @@ function extractUseStatements(node: any): UseStatement[] {
     }
 
     const results: UseStatement[] = [];
+    if (node.type === 'function' || node.type === 'const') {
+        return results;
+    }
     const groupPrefix = typeof node.name === 'string' ? node.name : node.name?.name ?? '';
 
     for (const item of node.items || []) {
-        if (item.kind !== 'useitem') {
+        if (item.kind !== 'useitem' || item.type === 'function' || item.type === 'const') {
             continue;
         }
 
@@ -257,6 +275,9 @@ function extractUseStatements(node: any): UseStatement[] {
 
         if (groupPrefix) {
             useStmt.groupPrefix = groupPrefix;
+            if (node.loc) {
+                useStmt.groupLoc = nodeToLocation(node);
+            }
         }
 
         results.push(useStmt);
@@ -280,11 +301,20 @@ const EMPTY_RESULT: PhpFileInfo = Object.freeze({
     members: Object.freeze([]) as readonly never[] as never[],
 });
 
-export function parsePhpFile(content: string): PhpFileInfo {
-    let ast: any;
+export function parsePhpAst(content: string): any | null {
+    if (content.length > MAX_PARSEABLE_PHP_CHARACTERS) {
+        return null;
+    }
     try {
-        ast = engine.parseCode(content, 'file.php');
+        return engine.parseCode(content, 'file.php');
     } catch {
+        return null;
+    }
+}
+
+export function parsePhpFile(content: string): PhpFileInfo {
+    const ast = parsePhpAst(content);
+    if (!ast) {
         return EMPTY_RESULT;
     }
 
